@@ -45,6 +45,18 @@ cd laygo-python
 pip install -e ".[dev]"
 ```
 
+### 🐳 Dev Container Setup
+
+If you're using this project in a dev container, you'll need to configure Git to use HTTPS instead of SSH for authentication:
+
+```bash
+# Switch to HTTPS remote URL
+git remote set-url origin https://github.com/ringoldsdev/laygo-python.git
+
+# Configure Git to use HTTPS for all GitHub operations
+git config --global url."https://github.com/".insteadOf "git@github.com:"
+```
+
 ---
 
 ## 🚀 Usage
