@@ -1,12 +1,12 @@
 name: Publish Wiki
 
-# Only run on pushes to main branch
 on:
   push:
     branches: [main]
     paths:
       - wiki/**
       - .github/workflows/publish-wiki.yml
+  workflow_dispatch:
 
 # Prevent multiple wiki deployments from running simultaneously
 concurrency:
