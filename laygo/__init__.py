@@ -2,7 +2,7 @@
 Laygo - A lightweight Python library for building resilient, in-memory data pipelines
 """
 
-__version__ = "0.1.1"
+__version__ = "VERSION_NUMBER"
 
 from .errors import ErrorHandler
 from .helpers import PipelineContext
