@@ -81,7 +81,7 @@ print(result)  # [4, 8, 12, 16, 20]
 
 ```python
 from laygo import Pipeline
-from laygo.helpers import PipelineContext
+from laygo import PipelineContext
 
 # Create context with shared state
 context: PipelineContext = {"multiplier": 3, "threshold": 10}
@@ -126,7 +126,7 @@ high_earners = (
 ### Using Transformers Directly
 
 ```python
-from laygo.transformers import Transformer
+from laygo import Transformer
 
 # Create a reusable transformation pipeline
 transformer = (
@@ -145,7 +145,7 @@ result2 = list(transformer(range(10)))          # [4, 8, 12, 16, 20]
 
 ```python
 from laygo import Pipeline
-from laygo.transformers import Transformer
+from laygo import Transformer
 
 # Create reusable transformation components
 validate_data = Transformer.init(dict).filter(lambda x: x.get("id") is not None)
@@ -164,7 +164,7 @@ result = (
 
 ```python
 from laygo import Pipeline
-from laygo.transformers import ParallelTransformer
+from laygo import ParallelTransformer
 
 # Process large datasets with multiple threads
 large_data = range(100_000)
@@ -191,7 +191,7 @@ results = (
 
 ```python
 from laygo import Pipeline
-from laygo.transformers import Transformer
+from laygo import Transformer
 
 def risky_operation(x):
     if x == 5:
