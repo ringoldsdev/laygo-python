@@ -59,7 +59,7 @@ git config --global url."https://github.com/".insteadOf "git@github.com:"
 
 ---
 
-## 🚀 Usage
+## ▶️ Usage
 
 ### Basic Pipeline Operations
 
@@ -215,6 +215,12 @@ result = (
 
 ---
 
+## ⚙️ Projects using Laygo
+
+- **[Efemel](https://github.com/ringoldsdev/efemel)** - A CLI tool that processes Python files as configuration markup and exports them to JSON/YAML, replacing traditional templating DSLs with native Python syntax.
+
+---
+
 ## 📄 License
 
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
@@ -226,8 +232,8 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 - **[Python 3.12+](https://python.org)** - Core language with modern type hints
 - **[Ruff](https://github.com/astral-sh/ruff)** - Code formatting and linting
 - **[Pytest](https://pytest.org/)** - Testing framework
-- **[ThreadPoolExecutor](https://docs.python.org/3/library/concurrent.futures.html)** - Parallel processing
-- **[Type Hints](https://docs.python.org/3/library/typing.html)** - Full type safety support
+- **[DevContainers](https://containers.dev/)** - Consistent development environment
+- **[GitHub Actions](https://github.com/features/actions)** - CI/CD automation
 
 ---
 
