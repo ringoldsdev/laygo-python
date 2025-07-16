@@ -2,9 +2,9 @@
 
 import pytest
 
-from laygo.errors import ErrorHandler
-from laygo.transformers.transformer import PipelineContext
-from laygo.transformers.transformer import Transformer
+from laygo import ErrorHandler
+from laygo import PipelineContext
+from laygo import Transformer
 
 
 class TestTransformerBasics:
@@ -216,7 +216,7 @@ class TestTransformerErrorHandling:
     errored_chunks = []
     transformer = Transformer.init(int, chunk_size=1).catch(
       lambda t: t.map(lambda x: x / 0),  # Division by zero
-      on_error=lambda chunk, error, context: errored_chunks.append(chunk),
+      on_error=lambda chunk, error, context: errored_chunks.append(chunk),  # type: ignore
     )
     result = list(transformer([1, 2, 3]))
 
@@ -244,7 +244,7 @@ class TestTransformerErrorHandling:
       Transformer.init(int, chunk_size=1)
       .catch(
         lambda t: t.map(lambda x: x / 0),
-        on_error=set_error_flag,
+        on_error=set_error_flag,  # type: ignore
       )
       .short_circuit(lambda ctx: ctx.get("error_occurred", False))
     )
@@ -266,7 +266,7 @@ class TestTransformerErrorHandling:
       Transformer.init(int, chunk_size=1)
       .catch(
         lambda t: t.map(lambda x: x / 0),
-        on_error=set_error_flag,
+        on_error=set_error_flag,  # type: ignore
       )
       .short_circuit(raise_on_error)
     )

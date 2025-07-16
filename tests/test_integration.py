@@ -2,10 +2,10 @@
 
 import threading
 
-from laygo.pipeline import Pipeline
-from laygo.transformers.parallel import ParallelTransformer
-from laygo.transformers.transformer import PipelineContext
-from laygo.transformers.transformer import Transformer
+from laygo import ParallelTransformer
+from laygo import Pipeline
+from laygo import PipelineContext
+from laygo import Transformer
 
 
 class TestPipelineTransformerBasics:
@@ -19,7 +19,7 @@ class TestPipelineTransformerBasics:
 
   def test_pipeline_context_sharing(self):
     """Test that context is properly shared between pipeline and transformers."""
-    context = {"multiplier": 3, "threshold": 5}
+    context = PipelineContext({"multiplier": 3, "threshold": 5})
     transformer = Transformer().map(lambda x, ctx: x * ctx["multiplier"]).filter(lambda x, ctx: x > ctx["threshold"])
     result = Pipeline([1, 2, 3]).context(context).apply(transformer).to_list()
     assert result == [6, 9]

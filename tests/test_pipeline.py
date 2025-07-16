@@ -1,7 +1,7 @@
 """Tests for the Pipeline class."""
 
-from laygo.pipeline import Pipeline
-from laygo.transformers.transformer import Transformer
+from laygo import Pipeline
+from laygo import Transformer
 
 
 class TestPipelineBasics:

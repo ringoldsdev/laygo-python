@@ -1,11 +1,10 @@
 from collections.abc import Callable
 import inspect
 from typing import Any
-from typing import TypedDict
 from typing import TypeGuard
 
 
-class PipelineContext(TypedDict):
+class PipelineContext(dict):
   """Generic, untyped context available to all pipeline operations."""
 
   pass

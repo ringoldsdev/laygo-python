@@ -4,10 +4,10 @@ import threading
 import time
 from unittest.mock import patch
 
-from laygo.errors import ErrorHandler
-from laygo.transformers.parallel import ParallelTransformer
-from laygo.transformers.transformer import PipelineContext
-from laygo.transformers.transformer import Transformer
+from laygo import ErrorHandler
+from laygo import ParallelTransformer
+from laygo import PipelineContext
+from laygo import Transformer
 
 
 class TestParallelTransformerBasics:
@@ -76,7 +76,7 @@ class TestParallelTransformerOperations:
 
   def test_flatten_operation(self):
     """Test flatten operation with concurrent execution."""
-    transformer = ParallelTransformer[list, int](max_workers=2, chunk_size=2).flatten()
+    transformer = ParallelTransformer[list[int], list[int]](max_workers=2, chunk_size=2).flatten()
     result = list(transformer([[1, 2], [3, 4], [5, 6]]))
     assert result == [1, 2, 3, 4, 5, 6]
 
@@ -308,7 +308,7 @@ class TestParallelTransformerErrorHandling:
     errored_chunks = []
     transformer = ParallelTransformer.init(int, chunk_size=1).catch(
       lambda t: t.map(lambda x: x / 0),  # Division by zero
-      on_error=lambda chunk, error, context: errored_chunks.append(chunk),
+      on_error=lambda chunk, error, context: errored_chunks.append(chunk),  # type: ignore
     )
     result = list(transformer([1, 2, 3]))
 

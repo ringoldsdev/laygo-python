@@ -8,12 +8,32 @@ path = "laygo/__init__.py"
 [project]
 name = "laygo"
 dynamic = ["version"]
-description = "A Python CLI application"
+description = "A lightweight Python library for building resilient, in-memory data pipelines with elegant, chainable syntax"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "MIT"}
 authors = [
     {name = "Ringolds Lescinskis", email = "ringolds@lescinskis.com"},
 ]
+keywords = ["pipeline", "data-processing", "etl", "functional", "chaining"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/ringoldsdev/laygo-python"
+Documentation = "https://github.com/ringoldsdev/laygo-python/wiki"
+Repository = "https://github.com/ringoldsdev/laygo-python.git"
+Issues = "https://github.com/ringoldsdev/laygo-python/issues"
 
 [project.optional-dependencies]
 dev = [
