@@ -1,0 +1,59 @@
+{
+  "name": "Python 3 with UV",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "cli",
+  "workspaceFolder": "/workspaces/laygo",
+
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "upgradePackages": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"$HOME/.cargo/bin:$PATH\" && uv sync --extra dev && uv pip install -e .",
+
+  // Configure tool-specific properties.
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "python.linting.enabled": true,
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "[python]": {
+          "editor.formatOnSave": true,
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.tabSize": 2,
+          "editor.indentSize": 2,
+          "editor.insertSpaces": true,
+          "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+          }
+        }
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-toolsai.jupyter",
+        "ms-vscode.makefile-tools",
+        "github.vscode-github-actions"
+      ]
+    }
+  },
+
+  // Forward ports for potential web servers or APIs
+  // "forwardPorts": [8000, 8080],
+
+  // Uncomment to connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
+  // "remoteUser": "root",
+
+  // Mount the workspace folder and preserve file permissions
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspaces/laygo,type=bind,consistency=cached"
+  ]
+}

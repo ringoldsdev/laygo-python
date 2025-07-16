@@ -12,7 +12,7 @@ description = "A Python CLI application"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
-    {name = "Ringolds Lescinskis", email = "ringolds@lescinskis.com", website},
+    {name = "Ringolds Lescinskis", email = "ringolds@lescinskis.com"},
 ]
 
 [project.optional-dependencies]
@@ -48,7 +48,7 @@ line-ending = "auto"
 [tool.ruff.lint.isort]
 force-single-line = true
 order-by-type = true
-known-first-party = ["efemel"]
+known-first-party = ["laygo"]
 combine-as-imports = false
 force-sort-within-sections = true
 case-sensitive = false

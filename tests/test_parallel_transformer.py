@@ -204,7 +204,7 @@ class TestParallelTransformerPerformance:
 
   def test_thread_pool_management(self):
     """Test that thread pool is properly created and cleaned up."""
-    with patch("efemel.pipeline.transformers.parallel.ThreadPoolExecutor") as mock_executor:
+    with patch("laygo.transformers.parallel.ThreadPoolExecutor") as mock_executor:
       mock_executor.return_value.__enter__.return_value = mock_executor.return_value
       mock_executor.return_value.__exit__.return_value = None
       mock_executor.return_value.submit.return_value.result.return_value = [2, 4]
