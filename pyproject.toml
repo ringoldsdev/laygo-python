@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "laygo/__init__.py"
+
+[project]
+name = "laygo"
+dynamic = ["version"]
+description = "A Python CLI application"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    {name = "Ringolds Lescinskis", email = "ringolds@lescinskis.com", website},
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.1.0",
+    "twine>=4.0.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+indent-width = 2
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+force-single-line = true
+order-by-type = true
+known-first-party = ["efemel"]
+combine-as-imports = false
+force-sort-within-sections = true
+case-sensitive = false
+split-on-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-v"
