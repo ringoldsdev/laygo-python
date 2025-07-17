@@ -43,6 +43,7 @@ dev = [
     "pytest>=7.0.0",
     "ruff>=0.1.0",
     "twine>=4.0.0",
+    "requests-mock>=1.12.1",
 ]
 
 [tool.ruff]

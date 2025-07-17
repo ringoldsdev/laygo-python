@@ -6,9 +6,9 @@ from typing import Any
 from typing import TypeVar
 from typing import overload
 
-from laygo import PipelineContext
-from laygo import Transformer
+from laygo.helpers import PipelineContext
 from laygo.helpers import is_context_aware
+from laygo.transformers.transformer import Transformer
 
 T = TypeVar("T")
 PipelineFunction = Callable[[T], Any]

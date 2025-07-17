@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from laygo import PipelineContext
+from laygo.helpers import PipelineContext
 
 ChunkErrorHandler = Callable[[list, Exception, PipelineContext], None]
 
