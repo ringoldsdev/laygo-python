@@ -38,9 +38,9 @@ jobs:
 
       - name: Update version in __init__.py
         run: |
-          sed -i 's|VERSION_NUMBER|${{ steps.version.outputs.VERSION }}|g' laygo/__init__.py
+          sed -i 's|"0.1.0"|"${{ steps.version.outputs.VERSION }}"|g' pyproject.toml
           echo "Updated version to ${{ steps.version.outputs.VERSION }}"
-          cat laygo/__init__.py
+          cat pyproject.toml
 
       - name: Build package
         run: uv build

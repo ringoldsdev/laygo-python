@@ -12,10 +12,10 @@ from functools import partial
 import itertools
 import threading
 
-from .transformer import DEFAULT_CHUNK_SIZE
-from .transformer import InternalTransformer
-from .transformer import PipelineContext
-from .transformer import Transformer
+from laygo import PipelineContext
+from laygo import Transformer
+from laygo.transformers.transformer import DEFAULT_CHUNK_SIZE
+from laygo.transformers.transformer import InternalTransformer
 
 
 class ParallelPipelineContextType(PipelineContext):

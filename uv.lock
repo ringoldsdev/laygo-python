@@ -209,7 +209,11 @@ wheels = [
 
 [[package]]
 name = "laygo"
+version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "requests" },
+]
 
 [package.optional-dependencies]
 dev = [
@@ -221,6 +225,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
+    { name = "requests", specifier = ">=2.32" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=4.0.0" },
 ]

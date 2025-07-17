@@ -9,8 +9,8 @@ from typing import Self
 from typing import Union
 from typing import overload
 
-from laygo.errors import ErrorHandler
-from laygo.helpers import PipelineContext
+from laygo import ErrorHandler
+from laygo import PipelineContext
 from laygo.helpers import is_context_aware
 from laygo.helpers import is_context_aware_reduce
 
