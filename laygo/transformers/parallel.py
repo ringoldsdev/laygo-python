@@ -1,6 +1,7 @@
 """Parallel transformer implementation using multiple threads."""
 
 from collections import deque
+from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Iterator
 from concurrent.futures import FIRST_COMPLETED
@@ -11,11 +12,17 @@ import copy
 from functools import partial
 import itertools
 import threading
+from typing import Any
+from typing import Union
+from typing import overload
 
-from .transformer import DEFAULT_CHUNK_SIZE
-from .transformer import InternalTransformer
-from .transformer import PipelineContext
-from .transformer import Transformer
+from laygo.errors import ErrorHandler
+from laygo.helpers import PipelineContext
+from laygo.transformers.transformer import DEFAULT_CHUNK_SIZE
+from laygo.transformers.transformer import ChunkErrorHandler
+from laygo.transformers.transformer import InternalTransformer
+from laygo.transformers.transformer import PipelineFunction
+from laygo.transformers.transformer import Transformer
 
 
 class ParallelPipelineContextType(PipelineContext):
@@ -142,3 +149,53 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
           yield from result_chunk
 
     return result_iterator_manager()
+
+  # --- Overridden Chaining Methods to Preserve Type ---
+
+  def on_error(self, handler: ChunkErrorHandler[In, Out] | ErrorHandler) -> "ParallelTransformer[In, Out]":
+    super().on_error(handler)
+    return self
+
+  def map[U](self, function: PipelineFunction[Out, U]) -> "ParallelTransformer[In, U]":
+    super().map(function)
+    return self  # type: ignore
+
+  def filter(self, predicate: PipelineFunction[Out, bool]) -> "ParallelTransformer[In, Out]":
+    super().filter(predicate)
+    return self
+
+  @overload
+  def flatten[T](self: "ParallelTransformer[In, list[T]]") -> "ParallelTransformer[In, T]": ...
+  @overload
+  def flatten[T](self: "ParallelTransformer[In, tuple[T, ...]]") -> "ParallelTransformer[In, T]": ...
+  @overload
+  def flatten[T](self: "ParallelTransformer[In, set[T]]") -> "ParallelTransformer[In, T]": ...
+  def flatten[T](  # type: ignore
+    self: Union[
+      "ParallelTransformer[In, list[T]]", "ParallelTransformer[In, tuple[T, ...]]", "ParallelTransformer[In, set[T]]"
+    ],
+  ) -> "ParallelTransformer[In, T]":
+    super().flatten()  # type: ignore
+    return self  # type: ignore
+
+  def tap(self, function: PipelineFunction[Out, Any]) -> "ParallelTransformer[In, Out]":
+    super().tap(function)
+    return self
+
+  def apply[T](
+    self, t: Callable[["ParallelTransformer[In, Out]"], "Transformer[In, T]"]
+  ) -> "ParallelTransformer[In, T]":
+    super().apply(t)  # type: ignore
+    return self  # type: ignore
+
+  def catch[U](
+    self,
+    sub_pipeline_builder: Callable[[Transformer[Out, Out]], Transformer[Out, U]],
+    on_error: ChunkErrorHandler[Out, U] | None = None,
+  ) -> "ParallelTransformer[In, U]":
+    super().catch(sub_pipeline_builder, on_error)
+    return self  # type: ignore
+
+  def short_circuit(self, function: Callable[[PipelineContext], bool | None]) -> "ParallelTransformer[In, Out]":
+    super().short_circuit(function)
+    return self

@@ -7,7 +7,7 @@ path = "laygo/__init__.py"
 
 [project]
 name = "laygo"
-dynamic = ["version"]
+version = "0.1.0"
 description = "A lightweight Python library for building resilient, in-memory data pipelines with elegant, chainable syntax"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -29,17 +29,21 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+dependencies = ["requests>=2.32"]
+
 [project.urls]
 Homepage = "https://github.com/ringoldsdev/laygo-python"
 Documentation = "https://github.com/ringoldsdev/laygo-python/wiki"
 Repository = "https://github.com/ringoldsdev/laygo-python.git"
 Issues = "https://github.com/ringoldsdev/laygo-python/issues"
 
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "ruff>=0.1.0",
     "twine>=4.0.0",
+    "requests-mock>=1.12.1",
 ]
 
 [tool.ruff]

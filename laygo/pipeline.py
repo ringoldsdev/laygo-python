@@ -8,8 +8,7 @@ from typing import overload
 
 from laygo.helpers import PipelineContext
 from laygo.helpers import is_context_aware
-
-from .transformers.transformer import Transformer
+from laygo.transformers.transformer import Transformer
 
 T = TypeVar("T")
 PipelineFunction = Callable[[T], Any]
