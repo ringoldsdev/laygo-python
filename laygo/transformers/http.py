@@ -127,11 +127,12 @@ class HTTPTransformer(Transformer[In, Out]):
   def flatten[T](self: "HTTPTransformer[In, tuple[T, ...]]") -> "HTTPTransformer[In, T]": ...
   @overload
   def flatten[T](self: "HTTPTransformer[In, set[T]]") -> "HTTPTransformer[In, T]": ...
-  def flatten[T](
+  # Forgive me for I have sinned, but this is necessary to avoid type errors
+  # Sinec I'm setting self type in the parent class, overriding it isn't allowed
+  def flatten[T](  # type: ignore
     self: Union["HTTPTransformer[In, list[T]]", "HTTPTransformer[In, tuple[T, ...]]", "HTTPTransformer[In, set[T]]"],
   ) -> "HTTPTransformer[In, T]":
-    super().flatten()
-    return self  # type: ignore
+    return super().flatten()  # type: ignore
 
   def tap(self, function: PipelineFunction[Out, Any]) -> "HTTPTransformer[In, Out]":
     super().tap(function)
