@@ -132,7 +132,8 @@ class HTTPTransformer(Transformer[In, Out]):
   def flatten[T](  # type: ignore
     self: Union["HTTPTransformer[In, list[T]]", "HTTPTransformer[In, tuple[T, ...]]", "HTTPTransformer[In, set[T]]"],
   ) -> "HTTPTransformer[In, T]":
-    return super().flatten()  # type: ignore
+    super().flatten()  # type: ignore
+    return self  # type: ignore
 
   def tap(self, function: PipelineFunction[Out, Any]) -> "HTTPTransformer[In, Out]":
     super().tap(function)
