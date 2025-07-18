@@ -4,6 +4,7 @@ from collections import deque
 from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Iterator
+from collections.abc import MutableMapping
 from concurrent.futures import FIRST_COMPLETED
 from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
@@ -11,6 +12,7 @@ from concurrent.futures import wait
 import copy
 from functools import partial
 import itertools
+from multiprocessing.managers import DictProxy
 import threading
 from typing import Any
 from typing import Union
@@ -101,25 +103,41 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
 
   def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
     """
-    Executes the transformer on data concurrently.
-
-    A new `threading.Lock` is created and added to the context for each call
-    to ensure execution runs are isolated and thread-safe.
+    Executes the transformer on data concurrently. It uses the shared
+    context provided by the Pipeline, if available.
     """
-    # Determine the context for this run, passing it by reference as requested.
-    run_context = context or self.context
-    # Add a per-call lock for thread safety.
-    run_context["lock"] = threading.Lock()
+    run_context = context if context is not None else self.context
 
-    def process_chunk(chunk: list[In], shared_context: PipelineContext) -> list[Out]:
+    # Detect if the context is already managed by the Pipeline.
+    is_managed_context = isinstance(run_context, DictProxy)
+
+    if is_managed_context:
+      # Use the existing shared context and lock from the Pipeline.
+      shared_context = run_context
+      yield from self._execute_with_context(data, shared_context)
+      # The context is live, so no need to update it here.
+      # The Pipeline's __del__ will handle final state.
+    else:
+      # Fallback for standalone use: create a thread-safe context.
+      # Since threads share memory, we can use the context directly with a lock.
+      if "lock" not in run_context:
+        run_context["lock"] = threading.Lock()
+
+      yield from self._execute_with_context(data, run_context)
+      # Context is already updated in-place for threads (shared memory)
+
+  def _execute_with_context(self, data: Iterable[In], shared_context: MutableMapping[str, Any]) -> Iterator[Out]:
+    """Helper to run the execution logic with a given context."""
+
+    def process_chunk(chunk: list[In], shared_context: MutableMapping[str, Any]) -> list[Out]:
       """
       Process a single chunk by passing the chunk and context explicitly
       to the transformer chain. This is safer and avoids mutating self.
       """
-      return self.transformer(chunk, shared_context)
+      return self.transformer(chunk, shared_context)  # type: ignore
 
-    # Create a partial function with the run_context "baked in".
-    process_chunk_with_context = partial(process_chunk, shared_context=run_context)
+    # Create a partial function with the shared_context "baked in".
+    process_chunk_with_context = partial(process_chunk, shared_context=shared_context)
 
     def _ordered_generator(chunks_iter: Iterator[list[In]], executor: ThreadPoolExecutor) -> Iterator[list[Out]]:
       """Generate results in their original order."""

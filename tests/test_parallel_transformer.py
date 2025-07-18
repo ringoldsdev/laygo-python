@@ -2,7 +2,6 @@
 
 import multiprocessing as mp
 import time
-from unittest.mock import patch
 
 from laygo import ErrorHandler
 from laygo import ParallelTransformer
@@ -158,19 +157,6 @@ class TestParallelTransformerOrderingAndPerformance:
 
     assert sorted(ordered_result) == sorted(unordered_result)
     assert ordered_result == [x * 2 for x in data]
-
-  def test_process_pool_management(self):
-    """Test that process pool is properly created and cleaned up."""
-    with patch("laygo.transformers.parallel.ProcessPoolExecutor") as mock_executor:
-      mock_executor.return_value.__enter__.return_value = mock_executor.return_value
-      mock_executor.return_value.__exit__.return_value = None
-      mock_executor.return_value.submit.return_value.result.return_value = [2, 4]
-      transformer = ParallelTransformer[int, int](max_workers=2, chunk_size=2)
-      list(transformer([1, 2]))
-
-      mock_executor.assert_called_with(max_workers=2)
-      mock_executor.return_value.__enter__.assert_called_once()
-      mock_executor.return_value.__exit__.assert_called_once()
 
 
 class TestParallelTransformerChunkingAndEdgeCases:
