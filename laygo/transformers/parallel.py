@@ -119,15 +119,14 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
 
   def _execute_with_context(self, data: Iterable[In], shared_context: MutableMapping[str, Any]) -> Iterator[Out]:
     """Helper to run the execution logic with a given context."""
-    with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-      executor = get_reusable_executor(max_workers=self.max_workers)
+    executor = get_reusable_executor(max_workers=self.max_workers)
 
-      chunks_to_process = self._chunk_generator(data)
-      gen_func = self._ordered_generator if self.ordered else self._unordered_generator
-      processed_chunks_iterator = gen_func(chunks_to_process, executor, shared_context)
+    chunks_to_process = self._chunk_generator(data)
+    gen_func = self._ordered_generator if self.ordered else self._unordered_generator
+    processed_chunks_iterator = gen_func(chunks_to_process, executor, shared_context)
 
-      for result_chunk in processed_chunks_iterator:
-        yield from result_chunk
+    for result_chunk in processed_chunks_iterator:
+      yield from result_chunk
 
   # ... The rest of the file remains the same ...
   def _ordered_generator(
