@@ -11,6 +11,7 @@ from typing import overload
 
 from laygo.helpers import PipelineContext
 from laygo.helpers import is_context_aware
+from laygo.transformers.threaded import ThreadedTransformer
 from laygo.transformers.transformer import Transformer
 
 T = TypeVar("T")
@@ -120,7 +121,10 @@ class Pipeline[T]:
 
     return self  # type: ignore
 
-  # ... The rest of the Pipeline class (transform, __iter__, to_list, etc.) remains unchanged ...
+  def buffer(self, size: int) -> "Pipeline[T]":
+    self.apply(ThreadedTransformer(max_workers=size))
+    return self
+
   def __iter__(self) -> Iterator[T]:
     """Allows the pipeline to be iterated over."""
     yield from self.processed_data
