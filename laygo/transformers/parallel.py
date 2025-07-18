@@ -17,6 +17,7 @@ from typing import Union
 from typing import overload
 
 from loky import ProcessPoolExecutor
+from loky import get_reusable_executor
 
 from laygo.errors import ErrorHandler
 from laygo.helpers import PipelineContext
@@ -119,6 +120,8 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
   def _execute_with_context(self, data: Iterable[In], shared_context: MutableMapping[str, Any]) -> Iterator[Out]:
     """Helper to run the execution logic with a given context."""
     with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+      executor = get_reusable_executor(max_workers=self.max_workers)
+
       chunks_to_process = self._chunk_generator(data)
       gen_func = self._ordered_generator if self.ordered else self._unordered_generator
       processed_chunks_iterator = gen_func(chunks_to_process, executor, shared_context)
