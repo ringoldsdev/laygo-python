@@ -11,6 +11,7 @@ from concurrent.futures import wait
 import copy
 import itertools
 import multiprocessing as mp
+from multiprocessing.managers import DictProxy
 from typing import Any
 from typing import Union
 from typing import overload
@@ -85,30 +86,45 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
     )
 
   def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
-    """Executes the transformer on data concurrently using processes."""
-    with mp.Manager() as manager:
-      initial_ctx_data = context if context is not None else self.context
-      shared_context = manager.dict(initial_ctx_data)
+    """
+    Executes the transformer on data concurrently. It uses the shared
+    context provided by the Pipeline, if available.
+    """
+    run_context = context if context is not None else self.context
 
-      if "lock" not in shared_context:
-        shared_context["lock"] = manager.Lock()
+    # Detect if the context is already managed by the Pipeline.
+    is_managed_context = isinstance(run_context, DictProxy)
 
-      try:
-        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-          chunks_to_process = self._chunk_generator(data)
-          gen_func = self._ordered_generator if self.ordered else self._unordered_generator
-          processed_chunks_iterator = gen_func(chunks_to_process, executor, shared_context)
+    if is_managed_context:
+      # Use the existing shared context and lock from the Pipeline.
+      shared_context = run_context
+      yield from self._execute_with_context(data, shared_context)
+      # The context is live, so no need to update it here.
+      # The Pipeline's __exit__ will handle final state.
+    else:
+      # Fallback for standalone use: create a temporary manager.
+      with mp.Manager() as manager:
+        initial_ctx_data = dict(run_context)
+        shared_context = manager.dict(initial_ctx_data)
+        if "lock" not in shared_context:
+          shared_context["lock"] = manager.Lock()
 
-          for result_chunk in processed_chunks_iterator:
-            yield from result_chunk
-      finally:
-        if context is not None:
-          final_context_state = dict(shared_context)
-          final_context_state.pop("lock", None)
-          # FIX 2: Do not clear the context, just update it.
-          # This allows chained transformers to merge their context results.
-          # context.clear()
-          context.update(final_context_state)
+        yield from self._execute_with_context(data, shared_context)
+
+        # Copy results back to the original non-shared context.
+        final_context_state = dict(shared_context)
+        final_context_state.pop("lock", None)
+        run_context.update(final_context_state)
+
+  def _execute_with_context(self, data: Iterable[In], shared_context: MutableMapping[str, Any]) -> Iterator[Out]:
+    """Helper to run the execution logic with a given context."""
+    with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+      chunks_to_process = self._chunk_generator(data)
+      gen_func = self._ordered_generator if self.ordered else self._unordered_generator
+      processed_chunks_iterator = gen_func(chunks_to_process, executor, shared_context)
+
+      for result_chunk in processed_chunks_iterator:
+        yield from result_chunk
 
   # ... The rest of the file remains the same ...
   def _ordered_generator(
