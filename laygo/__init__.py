@@ -6,6 +6,7 @@ from laygo.errors import ErrorHandler
 from laygo.helpers import PipelineContext
 from laygo.pipeline import Pipeline
 from laygo.transformers.http import HTTPTransformer
+from laygo.transformers.http import createHTTPTransformer
 from laygo.transformers.parallel import ParallelTransformer
 from laygo.transformers.parallel import createParallelTransformer
 from laygo.transformers.threaded import ThreadedTransformer
@@ -22,6 +23,7 @@ __all__ = [
   "ParallelTransformer",
   "createParallelTransformer",
   "HTTPTransformer",
+  "createHTTPTransformer",
   "PipelineContext",
   "ErrorHandler",
 ]
