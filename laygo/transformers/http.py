@@ -30,14 +30,30 @@ T = TypeVar("T")
 U = TypeVar("U")
 
 
+def createHTTPTransformer[T](
+  _type_hint: type[T],
+  base_url: str,
+  chunk_size: int | None = None,
+  endpoint: str | None = None,
+  max_workers: int = 4,
+) -> "HTTPTransformer[T, T]":
+  """Create a new identity parallel transformer with an explicit type hint."""
+  return HTTPTransformer[T, T](
+    base_url=base_url,
+    endpoint=endpoint,
+    max_workers=max_workers,
+    chunk_size=chunk_size,
+  )
+
+
 class HTTPTransformer(Transformer[In, Out]):
   """
   A self-sufficient, chainable transformer that manages its own
   distributed execution and worker endpoint definition.
   """
 
-  def __init__(self, base_url: str, endpoint: str | None = None, max_workers: int = 8):
-    super().__init__()
+  def __init__(self, base_url: str, endpoint: str | None = None, max_workers: int = 8, chunk_size: int | None = None):
+    super().__init__(chunk_size=chunk_size)
     self.base_url = base_url.rstrip("/")
     self.endpoint = endpoint
     self.max_workers = max_workers

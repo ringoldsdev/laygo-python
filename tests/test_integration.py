@@ -1,11 +1,10 @@
 """Integration tests for Pipeline and Transformer working together."""
 
-import threading
-
 from laygo import ParallelTransformer
 from laygo import Pipeline
 from laygo import PipelineContext
 from laygo import Transformer
+from laygo import createTransformer
 
 
 class TestPipelineTransformerBasics:
@@ -13,7 +12,7 @@ class TestPipelineTransformerBasics:
 
   def test_basic_pipeline_transformer_integration(self):
     """Test basic pipeline and transformer integration."""
-    transformer = Transformer.init(int).map(lambda x: x * 2).filter(lambda x: x > 5)
+    transformer = createTransformer(int).map(lambda x: x * 2).filter(lambda x: x > 5)
     result = Pipeline([1, 2, 3, 4, 5]).apply(transformer).to_list()
     assert result == [6, 8, 10]
 
@@ -83,6 +82,39 @@ class TestPipelineDataProcessing:
     assert valid_numbers == [1.0, 2.0, 3.0, 5.0, 7.0]
 
 
+def safe_increment_and_transform(x: int, ctx: PipelineContext) -> int:
+  with ctx["lock"]:
+    ctx["processed_count"] += 1
+    ctx["sum_total"] += x
+  return x * 2
+
+
+def count_and_transform(x: int, ctx: PipelineContext) -> int:
+  with ctx["lock"]:
+    ctx["items_processed"] += 1
+    if x % 2 == 0:
+      ctx["even_count"] += 1
+    else:
+      ctx["odd_count"] += 1
+  return x * 3
+
+
+def stage1_processor(x: int, ctx: PipelineContext) -> int:
+  """First stage processing with context update."""
+  with ctx["lock"]:
+    ctx["stage1_processed"] += 1
+    ctx["total_sum"] += x
+  return x * 2
+
+
+def stage2_processor(x: int, ctx: PipelineContext) -> int:
+  """Second stage processing with context update."""
+  with ctx["lock"]:
+    ctx["stage2_processed"] += 1
+    ctx["total_sum"] += x  # Add transformed value too
+  return x + 10
+
+
 class TestPipelineParallelTransformerIntegration:
   """Test Pipeline integration with ParallelTransformer and context modification."""
 
@@ -96,13 +128,7 @@ class TestPipelineParallelTransformerIntegration:
 
   def test_parallel_transformer_with_context_modification(self):
     """Test parallel transformer safely modifying shared context."""
-    context = PipelineContext({"processed_count": 0, "sum_total": 0, "_lock": threading.Lock()})
-
-    def safe_increment_and_transform(x: int, ctx: PipelineContext) -> int:
-      with ctx["_lock"]:
-        ctx["processed_count"] += 1
-        ctx["sum_total"] += x
-      return x * 2
+    context = PipelineContext({"processed_count": 0, "sum_total": 0})
 
     parallel_transformer = ParallelTransformer[int, int](max_workers=2, chunk_size=2)
     parallel_transformer = parallel_transformer.map(safe_increment_and_transform)
@@ -118,16 +144,7 @@ class TestPipelineParallelTransformerIntegration:
 
   def test_pipeline_accesses_modified_context(self):
     """Test that pipeline can access context data modified by parallel transformer."""
-    context = PipelineContext({"items_processed": 0, "even_count": 0, "odd_count": 0, "_lock": threading.Lock()})
-
-    def count_and_transform(x: int, ctx: PipelineContext) -> int:
-      with ctx["_lock"]:
-        ctx["items_processed"] += 1
-        if x % 2 == 0:
-          ctx["even_count"] += 1
-        else:
-          ctx["odd_count"] += 1
-      return x * 3
+    context = PipelineContext({"items_processed": 0, "even_count": 0, "odd_count": 0})
 
     parallel_transformer = ParallelTransformer[int, int](max_workers=2, chunk_size=3)
     parallel_transformer = parallel_transformer.map(count_and_transform)
@@ -146,20 +163,6 @@ class TestPipelineParallelTransformerIntegration:
     """Test chaining multiple parallel transformers with shared context."""
     # Shared context for statistics across transformations
     context = PipelineContext({"stage1_processed": 0, "stage2_processed": 0, "total_sum": 0})
-
-    def stage1_processor(x: int, ctx: PipelineContext) -> int:
-      """First stage processing with context update."""
-      with ctx["lock"]:
-        ctx["stage1_processed"] += 1
-        ctx["total_sum"] += x
-      return x * 2
-
-    def stage2_processor(x: int, ctx: PipelineContext) -> int:
-      """Second stage processing with context update."""
-      with ctx["lock"]:
-        ctx["stage2_processed"] += 1
-        ctx["total_sum"] += x  # Add transformed value too
-      return x + 10
 
     # Create two parallel transformers
     stage1 = ParallelTransformer[int, int](max_workers=2, chunk_size=2).map(stage1_processor)

@@ -29,7 +29,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-dependencies = ["requests>=2.32"]
+dependencies = [
+    "requests>=2.32",
+    "loky>=3.5.5",
+]
 
 [project.urls]
 Homepage = "https://github.com/ringoldsdev/laygo-python"

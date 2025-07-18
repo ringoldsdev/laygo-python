@@ -8,6 +8,8 @@ from laygo import ErrorHandler
 from laygo import PipelineContext
 from laygo import ThreadedTransformer
 from laygo import Transformer
+from laygo.transformers.threaded import createThreadedTransformer
+from laygo.transformers.transformer import createTransformer
 
 
 class TestThreadedTransformerBasics:
@@ -35,7 +37,7 @@ class TestThreadedTransformerBasics:
 
   def test_from_transformer_creation(self):
     """Test creating ThreadedTransformer from existing Transformer."""
-    regular = Transformer.init(int, chunk_size=100).map(lambda x: x * 2).filter(lambda x: x > 5)
+    regular = createTransformer(int, chunk_size=100).map(lambda x: x * 2).filter(lambda x: x > 5)
     parallel = ThreadedTransformer.from_transformer(regular, max_workers=2, ordered=True)
 
     data = [1, 2, 3, 4, 5, 6]
@@ -299,14 +301,14 @@ class TestThreadedTransformerErrorHandling:
 
   def test_safe_with_successful_operation(self):
     """Test safe execution with successful transformation."""
-    transformer = ThreadedTransformer.init(int).catch(lambda t: t.map(lambda x: x * 2))
+    transformer = createThreadedTransformer(int).catch(lambda t: t.map(lambda x: x * 2))
     result = list(transformer([1, 2, 3]))
     assert result == [2, 4, 6]
 
   def test_safe_with_error_isolation(self):
     """Test safe execution isolates errors to specific chunks."""
     errored_chunks = []
-    transformer = ThreadedTransformer.init(int, chunk_size=1).catch(
+    transformer = createThreadedTransformer(int, chunk_size=1).catch(
       lambda t: t.map(lambda x: x / 0),  # Division by zero
       on_error=lambda chunk, error, context: errored_chunks.append(chunk),  # type: ignore
     )
@@ -322,7 +324,7 @@ class TestThreadedTransformerErrorHandling:
     error_handler.on_error(lambda chunk, error, context: errored_chunks.append(chunk))
 
     transformer = (
-      ThreadedTransformer.init(int, chunk_size=1).on_error(error_handler).catch(lambda t: t.map(lambda x: x / 0))
+      createThreadedTransformer(int, chunk_size=1).on_error(error_handler).catch(lambda t: t.map(lambda x: x / 0))
     )
 
     list(transformer([1, 2, 3]))

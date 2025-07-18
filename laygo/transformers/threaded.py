@@ -31,6 +31,21 @@ class ThreadedPipelineContextType(PipelineContext):
   lock: threading.Lock
 
 
+def createThreadedTransformer[T](
+  _type_hint: type[T],
+  max_workers: int = 4,
+  ordered: bool = True,
+  chunk_size: int = DEFAULT_CHUNK_SIZE,
+) -> "ThreadedTransformer[T, T]":
+  """Create a new identity threaded transformer with an explicit type hint."""
+  return ThreadedTransformer[T, T](
+    max_workers=max_workers,
+    ordered=ordered,
+    chunk_size=chunk_size,
+    transformer=None,
+  )
+
+
 class ThreadedTransformer[In, Out](Transformer[In, Out]):
   """
   A transformer that executes operations concurrently using multiple threads.
@@ -40,7 +55,7 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
     self,
     max_workers: int = 4,
     ordered: bool = True,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_size: int | None = None,
     transformer: InternalTransformer[In, Out] | None = None,
   ):
     """

@@ -1,7 +1,7 @@
 """Tests for the Pipeline class."""
 
 from laygo import Pipeline
-from laygo import Transformer
+from laygo.transformers.transformer import createTransformer
 
 
 class TestPipelineBasics:
@@ -36,7 +36,7 @@ class TestPipelineTransformations:
 
   def test_apply_with_transformer(self):
     """Test apply with transformer object."""
-    transformer = Transformer.init(int).map(lambda x: x * 2).filter(lambda x: x > 4)
+    transformer = createTransformer(int).map(lambda x: x * 2).filter(lambda x: x > 4)
     result = Pipeline([1, 2, 3, 4]).apply(transformer).to_list()
     assert result == [6, 8]
 
@@ -93,7 +93,7 @@ class TestPipelineTerminalOperations:
   def test_consume_processes_without_return(self):
     """Test consume processes all elements without returning anything."""
     side_effects = []
-    transformer = Transformer.init(int).tap(lambda x: side_effects.append(x))
+    transformer = createTransformer(int).tap(lambda x: side_effects.append(x))
     result = Pipeline([1, 2, 3]).apply(transformer).consume()
 
     assert result is None
@@ -166,7 +166,7 @@ class TestPipelinePerformance:
   def test_chunked_processing_consistency(self):
     """Test that chunked processing produces consistent results."""
     # Use small chunk size to test chunking behavior
-    transformer = Transformer.init(int, chunk_size=10).map(lambda x: x + 1)
+    transformer = createTransformer(int, chunk_size=10).map(lambda x: x + 1)
     result = Pipeline(list(range(100))).apply(transformer).to_list()
 
     expected = list(range(1, 101))  # [1, 2, 3, ..., 100]
