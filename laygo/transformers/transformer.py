@@ -25,6 +25,11 @@ type InternalTransformer[In, Out] = Callable[[list[In], PipelineContext], list[O
 type ChunkErrorHandler[In, U] = Callable[[list[In], Exception, PipelineContext], list[U]]
 
 
+def createTransformer[T](_type_hint: type[T], chunk_size: int = DEFAULT_CHUNK_SIZE) -> "Transformer[T, T]":
+  """Create a new identity pipeline with an explicit type hint."""
+  return Transformer[T, T](chunk_size=chunk_size)  # type: ignore
+
+
 class Transformer[In, Out]:
   """
   Defines and composes data transformations by passing context explicitly.
@@ -32,7 +37,7 @@ class Transformer[In, Out]:
 
   def __init__(
     self,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_size: int | None = DEFAULT_CHUNK_SIZE,
     transformer: InternalTransformer[In, Out] | None = None,
   ):
     self.chunk_size = chunk_size
@@ -40,11 +45,6 @@ class Transformer[In, Out]:
     # The default transformer now accepts and ignores a context argument.
     self.transformer: InternalTransformer[In, Out] = transformer or (lambda chunk, ctx: chunk)  # type: ignore
     self.error_handler = ErrorHandler()
-
-  @classmethod
-  def init[T](cls, _type_hint: type[T], chunk_size: int = DEFAULT_CHUNK_SIZE) -> "Transformer[T, T]":
-    """Create a new identity pipeline with an explicit type hint."""
-    return cls(chunk_size=chunk_size)  # type: ignore
 
   @classmethod
   def from_transformer[T, U](
@@ -178,7 +178,7 @@ class Transformer[In, Out]:
       self.on_error(on_error)  # type: ignore
 
     # Create a blank transformer for the sub-pipeline
-    temp_transformer = Transformer.init(_type_hint=..., chunk_size=self.chunk_size)  # type: ignore
+    temp_transformer = createTransformer(_type_hint=..., chunk_size=self.chunk_size)  # type: ignore
 
     # Build the sub-pipeline and get its internal transformer function
     sub_pipeline = sub_pipeline_builder(temp_transformer)
