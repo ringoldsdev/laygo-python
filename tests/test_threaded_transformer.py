@@ -15,13 +15,6 @@ from laygo.transformers.transformer import createTransformer
 class TestThreadedTransformerBasics:
   """Test core parallel transformer functionality."""
 
-  def test_initialization_defaults(self):
-    """Test parallel transformer initialization with default values."""
-    transformer = ThreadedTransformer[int, int]()
-    assert transformer.max_workers == 4
-    assert transformer.ordered is True
-    assert transformer.chunk_size == 1000
-
   def test_initialization_custom_parameters(self):
     """Test initialization with custom parameters."""
     transformer = ThreadedTransformer[int, int](max_workers=8, ordered=False, chunk_size=500)

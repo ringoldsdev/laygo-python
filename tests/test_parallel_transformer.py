@@ -84,16 +84,18 @@ class TestParallelTransformerOperations:
 
 
 def safe_increment(x: int, ctx: PipelineContext) -> int:
-  current_items = ctx["items"]
-  time.sleep(0.001)
-  ctx["items"] = current_items + 1
+  with ctx["lock"]:
+    current_items = ctx["items"]
+    time.sleep(0.001)
+    ctx["items"] = current_items + 1
   return x * 2
 
 
 def update_stats(x: int, ctx: PipelineContext) -> int:
-  ctx["total_sum"] += x
-  ctx["item_count"] += 1
-  ctx["max_value"] = max(ctx["max_value"], x)
+  with ctx["lock"]:
+    ctx["total_sum"] += x
+    ctx["item_count"] += 1
+    ctx["max_value"] = max(ctx["max_value"], x)
   return x * 3
 
 
