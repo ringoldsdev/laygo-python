@@ -1,6 +1,9 @@
 """Tests for the Pipeline class."""
 
+import pytest
+
 from laygo import Pipeline
+from laygo import PipelineContext
 from laygo.transformers.transformer import createTransformer
 
 
@@ -211,3 +214,244 @@ class TestPipelinePerformance:
 
     assert sorted(first_map_values) == list(range(10))
     assert sorted(second_map_values) == [x * 2 for x in range(10)]
+
+
+class TestPipelineBranch:
+  """Test pipeline branch method functionality."""
+
+  def test_branch_basic_functionality(self):
+    """Test basic branch operation with simple transformers."""
+    # Create a pipeline with basic data
+    pipeline = Pipeline([1, 2, 3, 4, 5])
+    
+    # Create two different branch transformers
+    double_branch = createTransformer(int).map(lambda x: x * 2)
+    square_branch = createTransformer(int).map(lambda x: x ** 2)
+    
+    # Execute branching
+    result = pipeline.branch({
+      "doubled": double_branch,
+      "squared": square_branch
+    })
+    
+    # Verify results contain the last processed chunk for each branch
+    assert "doubled" in result
+    assert "squared" in result
+    assert len(result) == 2
+    
+    # Since the default chunk size is 1000 and we have 5 elements,
+    # there should be only one chunk, so the result should contain all elements
+    assert sorted(result["doubled"]) == [2, 4, 6, 8, 10]
+    assert sorted(result["squared"]) == [1, 4, 9, 16, 25]
+
+  def test_branch_with_empty_input(self):
+    """Test branch with empty input data."""
+    pipeline = Pipeline([])
+    
+    double_branch = createTransformer(int).map(lambda x: x * 2)
+    square_branch = createTransformer(int).map(lambda x: x ** 2)
+    
+    result = pipeline.branch({
+      "doubled": double_branch,
+      "squared": square_branch
+    })
+    
+    # Should return empty lists for all branches
+    assert result == {"doubled": [], "squared": []}
+
+  def test_branch_with_empty_branches_dict(self):
+    """Test branch with empty branches dictionary."""
+    pipeline = Pipeline([1, 2, 3])
+    
+    result = pipeline.branch({})
+    
+    # Should return empty dictionary
+    assert result == {}
+
+  def test_branch_with_single_branch(self):
+    """Test branch with only one branch."""
+    pipeline = Pipeline([1, 2, 3, 4])
+    
+    triple_branch = createTransformer(int).map(lambda x: x * 3)
+    
+    result = pipeline.branch({"tripled": triple_branch})
+    
+    assert len(result) == 1
+    assert "tripled" in result
+    assert sorted(result["tripled"]) == [3, 6, 9, 12]
+
+  def test_branch_with_filtering_transformers(self):
+    """Test branch with transformers that filter data."""
+    pipeline = Pipeline([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    
+    # Create transformers that filter data
+    even_branch = createTransformer(int).filter(lambda x: x % 2 == 0)
+    odd_branch = createTransformer(int).filter(lambda x: x % 2 == 1)
+    
+    result = pipeline.branch({
+      "evens": even_branch,
+      "odds": odd_branch
+    })
+    
+    assert sorted(result["evens"]) == [2, 4, 6, 8, 10]
+    assert sorted(result["odds"]) == [1, 3, 5, 7, 9]
+
+  def test_branch_with_multiple_transformations(self):
+    """Test branch with complex multi-step transformers."""
+    pipeline = Pipeline([1, 2, 3, 4, 5, 6])
+    
+    # Complex transformer: filter evens, then double, then add 1
+    complex_branch = (createTransformer(int)
+                     .filter(lambda x: x % 2 == 0)
+                     .map(lambda x: x * 2)
+                     .map(lambda x: x + 1))
+    
+    # Simple transformer: just multiply by 10
+    simple_branch = createTransformer(int).map(lambda x: x * 10)
+    
+    result = pipeline.branch({
+      "complex": complex_branch,
+      "simple": simple_branch
+    })
+    
+    # Complex: [2, 4, 6] -> [4, 8, 12] -> [5, 9, 13]
+    assert sorted(result["complex"]) == [5, 9, 13]
+    # Simple: [1, 2, 3, 4, 5, 6] -> [10, 20, 30, 40, 50, 60]
+    assert sorted(result["simple"]) == [10, 20, 30, 40, 50, 60]
+
+  def test_branch_with_chunked_data(self):
+    """Test branch behavior with data that gets processed in multiple chunks."""
+    # Create a dataset large enough to be processed in multiple chunks
+    # with a small chunk size
+    data = list(range(1, 21))  # [1, 2, 3, ..., 20]
+    pipeline = Pipeline(data)
+    
+    # Use small chunk size to ensure multiple chunks
+    small_chunk_transformer = createTransformer(int, chunk_size=5).map(lambda x: x * 2)
+    identity_transformer = createTransformer(int, chunk_size=5)
+    
+    result = pipeline.branch({
+      "doubled": small_chunk_transformer,
+      "identity": identity_transformer
+    })
+    
+    # Since branch returns the LAST chunk processed, and we have 20 items with chunk_size=5,
+    # we'll have 4 chunks: [1-5], [6-10], [11-15], [16-20]
+    # The last chunk is [16, 17, 18, 19, 20]
+    assert sorted(result["doubled"]) == [32, 34, 36, 38, 40]  # [16, 17, 18, 19, 20] * 2
+    assert sorted(result["identity"]) == [16, 17, 18, 19, 20]
+
+  def test_branch_with_flatten_operation(self):
+    """Test branch with flatten operations."""
+    pipeline = Pipeline([[1, 2], [3, 4], [5, 6]])
+    
+    flatten_branch = createTransformer(list).flatten()
+    count_branch = createTransformer(list).map(lambda x: len(x))
+    
+    result = pipeline.branch({
+      "flattened": flatten_branch,
+      "lengths": count_branch
+    })
+    
+    assert sorted(result["flattened"]) == [1, 2, 3, 4, 5, 6]
+    assert sorted(result["lengths"]) == [2, 2, 2]
+
+  def test_branch_is_terminal_operation(self):
+    """Test that branch is a terminal operation that consumes the pipeline."""
+    pipeline = Pipeline([1, 2, 3, 4, 5])
+    
+    # Create a simple transformer
+    double_branch = createTransformer(int).map(lambda x: x * 2)
+    
+    # Execute branch
+    result = pipeline.branch({"doubled": double_branch})
+    
+    # Verify the result
+    assert sorted(result["doubled"]) == [2, 4, 6, 8, 10]
+    
+    # Attempt to use the pipeline again should yield empty results
+    # since the iterator has been consumed
+    empty_result = pipeline.to_list()
+    assert empty_result == []
+
+  def test_branch_with_different_chunk_sizes(self):
+    """Test branch with transformers that have different chunk sizes."""
+    data = list(range(1, 16))  # [1, 2, 3, ..., 15]
+    pipeline = Pipeline(data)
+    
+    # Different chunk sizes for different branches
+    large_chunk_branch = createTransformer(int, chunk_size=10).map(lambda x: x + 100)
+    small_chunk_branch = createTransformer(int, chunk_size=3).map(lambda x: x + 200)
+    
+    result = pipeline.branch({
+      "large_chunk": large_chunk_branch,
+      "small_chunk": small_chunk_branch
+    })
+    
+    # With 15 items:
+    # large_chunk (chunk_size=10): chunks [1-10], [11-15] -> last chunk [11-15]
+    # small_chunk (chunk_size=3): chunks [1-3], [4-6], [7-9], [10-12], [13-15] -> last chunk [13-15]
+    
+    assert sorted(result["large_chunk"]) == [111, 112, 113, 114, 115]  # [11, 12, 13, 14, 15] + 100
+    assert sorted(result["small_chunk"]) == [213, 214, 215]  # [13, 14, 15] + 200
+
+  def test_branch_preserves_data_order_within_chunks(self):
+    """Test that branch preserves data order within the final chunk."""
+    pipeline = Pipeline([5, 3, 8, 1, 9, 2])
+    
+    # Identity transformer should preserve order
+    identity_branch = createTransformer(int)
+    reverse_branch = createTransformer(int).map(lambda x: -x)
+    
+    result = pipeline.branch({
+      "identity": identity_branch,
+      "negated": reverse_branch
+    })
+    
+    # Should preserve the original order within the chunk
+    assert result["identity"] == [5, 3, 8, 1, 9, 2]
+    assert result["negated"] == [-5, -3, -8, -1, -9, -2]
+
+  def test_branch_with_error_handling(self):
+    """Test branch behavior when transformers encounter errors."""
+    pipeline = Pipeline([1, 2, 0, 4, 5])
+    
+    # Create a transformer that will fail on zero division
+    division_branch = createTransformer(int).map(lambda x: 10 // x)
+    safe_branch = createTransformer(int).map(lambda x: x * 2)
+    
+    # The division_branch should fail when processing 0
+    # We expect this to raise an exception
+    with pytest.raises(ZeroDivisionError):
+      pipeline.branch({
+        "division": division_branch,
+        "safe": safe_branch
+      })
+
+  def test_branch_context_isolation(self):
+    """Test that different branches don't interfere with each other's context."""
+    pipeline = Pipeline([1, 2, 3])
+    
+    # Create context-aware transformers that modify context
+    def context_modifier_a(chunk: list[int], ctx: PipelineContext) -> list[int]:
+      ctx["branch_a_processed"] = len(chunk)
+      return [x * 2 for x in chunk]
+    
+    def context_modifier_b(chunk: list[int], ctx: PipelineContext) -> list[int]:
+      ctx["branch_b_processed"] = len(chunk) 
+      return [x * 3 for x in chunk]
+    
+    branch_a = createTransformer(int)._pipe(context_modifier_a)
+    branch_b = createTransformer(int)._pipe(context_modifier_b)
+    
+    result = pipeline.branch({
+      "branch_a": branch_a,
+      "branch_b": branch_b
+    })
+    
+    assert sorted(result["branch_a"]) == [2, 4, 6]
+    assert sorted(result["branch_b"]) == [3, 6, 9]
+    
+    # Both context values should be set
+    assert pipeline.ctx.get("branch_a_processed") == 3
+    assert pipeline.ctx.get("branch_b_processed") == 3

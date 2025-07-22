@@ -147,6 +147,56 @@ class Pipeline[T]:
 
     return self  # type: ignore
 
+  def branch(self, branches: dict[str, Transformer[T, Any]]) -> dict[str, list[Any]]:
+    """Forks the pipeline, sending all data to multiple branches and returning the last chunk.
+
+    This is a **terminal operation** that implements a fan-out pattern.
+    It consumes the pipeline's data, sends the **entire dataset** to each
+    branch transformer, and continuously **overwrites** a shared context value
+    with the latest processed chunk. The final result is a dictionary
+    containing only the **last processed chunk** for each branch.
+
+    Args:
+        branches: A dictionary where keys are branch names (str) and values
+                  are `Transformer` instances.
+
+    Returns:
+        A dictionary where keys are the branch names and values are lists
+        of items from the last processed chunk for that branch.
+    """
+    if not branches:
+      self.consume()
+      return {}
+
+    # 1. Build a single "fan-out" transformer by chaining taps.
+    fan_out_transformer = Transformer[T, T]()
+
+    for name, branch_transformer in branches.items():
+      # Create a "collector" that runs the user's logic and then
+      # overwrites the context with its latest chunk.
+      collector = Transformer.from_transformer(branch_transformer)
+
+      # This is the side-effect operation that overwrites the context.
+      def overwrite_context_with_chunk(chunk: list[Any], ctx: PipelineContext, name=name) -> list[Any]:
+        # This is an atomic assignment for manager dicts; no lock needed.
+        ctx[name] = chunk
+        # Return the chunk unmodified to satisfy the _pipe interface.
+        return chunk
+
+      # Add this as the final step in the collector's pipeline.
+      collector._pipe(overwrite_context_with_chunk)
+
+      # Tap the main transformer. The collector will run as a side-effect.
+      fan_out_transformer.tap(collector)
+
+    # 2. Apply the fan-out transformer and consume the entire pipeline.
+    self.apply(fan_out_transformer).consume()
+
+    # 3. Collect the final state from the context.
+    final_results = {name: self.ctx.get(name, []) for name in branches}
+
+    return final_results
+
   def buffer(self, size: int) -> "Pipeline[T]":
     """Buffer the pipeline using threaded processing.
 
