@@ -85,6 +85,60 @@ class TestTransformerContextSupport:
     assert result == [1, 2, 3]
     assert side_effects == ["item:1", "item:2", "item:3"]
 
+  def test_tap_with_transformer(self):
+    """Test tap with a transformer for side effects."""
+    side_effects = []
+
+    # Create a side-effect transformer that logs processed values
+    side_effect_transformer = (
+      createTransformer(int)
+      .map(lambda x: x * 10)  # Transform for side effect
+      .tap(lambda x: side_effects.append(x))  # Capture the transformed values
+    )
+
+    # Main transformer that uses the side-effect transformer via tap
+    main_transformer = (
+      createTransformer(int)
+      .map(lambda x: x * 2)  # Main transformation
+      .tap(side_effect_transformer)  # Apply side-effect transformer
+      .map(lambda x: x + 1)  # Continue main transformation
+    )
+
+    result = list(main_transformer([1, 2, 3]))
+
+    # Main pipeline should produce: [1,2,3] -> [2,4,6] -> [3,5,7]
+    assert result == [3, 5, 7]
+
+    # Side effects should capture: [2,4,6] -> [20,40,60]
+    assert side_effects == [20, 40, 60]
+
+  def test_tap_with_transformer_and_context(self):
+    """Test tap with a transformer that uses context."""
+    side_effects = []
+    context = PipelineContext({"multiplier": 5, "log_prefix": "processed:"})
+
+    # Create a context-aware side-effect transformer
+    side_effect_transformer = (
+      createTransformer(int)
+      .map(lambda x, ctx: x * ctx["multiplier"])  # Use context multiplier
+      .tap(lambda x, ctx: side_effects.append(f"{ctx['log_prefix']}{x}"))  # Log with context prefix
+    )
+
+    # Main transformer
+    main_transformer = (
+      createTransformer(int)
+      .map(lambda x: x + 10)  # Main transformation
+      .tap(side_effect_transformer)  # Apply side-effect transformer with context
+    )
+
+    result = list(main_transformer([1, 2, 3], context))
+
+    # Main pipeline: [1,2,3] -> [11,12,13]
+    assert result == [11, 12, 13]
+
+    # Side effects: [11,12,13] -> [55,60,65] -> ["processed:55", "processed:60", "processed:65"]
+    assert side_effects == ["processed:55", "processed:60", "processed:65"]
+
 
 class TestTransformerChaining:
   """Test chaining multiple transformer operations."""

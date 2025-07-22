@@ -123,13 +123,54 @@ class Transformer[In, Out]:
     """Flattens nested lists; the context is passed through the operation."""
     return self._pipe(lambda chunk, ctx: [item for sublist in chunk for item in sublist])  # type: ignore
 
-  def tap(self, function: PipelineFunction[Out, Any]) -> "Transformer[In, Out]":
-    """Applies a side-effect function without modifying the data."""
+  @overload
+  def tap(self, arg: "Transformer[Out, Any]") -> "Transformer[In, Out]": ...
 
-    if is_context_aware(function):
-      return self._pipe(lambda chunk, ctx: [x for x in chunk if function(x, ctx) or True])
+  @overload
+  def tap(self, arg: PipelineFunction[Out, Any]) -> "Transformer[In, Out]": ...
 
-    return self._pipe(lambda chunk, _ctx: [function(x) or x for x in chunk])  # type: ignore
+  def tap(
+    self,
+    arg: Union["Transformer[Out, Any]", PipelineFunction[Out, Any]],
+  ) -> "Transformer[In, Out]":
+    """
+    Applies a side-effect without modifying the main data stream.
+
+    This method can be used in two ways:
+    1.  With a `Transformer`: Applies a sub-pipeline to each chunk for side-effects
+        (e.g., logging a chunk), discarding the sub-pipeline's output.
+    2.  With a `function`: Applies a function to each element individually for
+        side-effects (e.g., printing an item).
+
+    Args:
+        arg: A `Transformer` instance or a function to be applied for side-effects.
+
+    Returns:
+        The transformer instance for method chaining.
+    """
+    match arg:
+      # Case 1: The argument is another Transformer
+      case Transformer() as tapped_transformer:
+        tapped_func = tapped_transformer.transformer
+
+        def operation(chunk: list[Out], ctx: PipelineContext) -> list[Out]:
+          # Execute the tapped transformer's logic on the chunk for side-effects.
+          _ = tapped_func(chunk, ctx)
+          # Return the original chunk to continue the main pipeline.
+          return chunk
+
+        return self._pipe(operation)
+
+      # Case 2: The argument is a callable function
+      case function if callable(function):
+        if is_context_aware(function):
+          return self._pipe(lambda chunk, ctx: [x for x in chunk if function(x, ctx) or True])
+
+        return self._pipe(lambda chunk, _ctx: [x for x in chunk if function(x) or True])  # type: ignore
+
+      # Default case for robustness
+      case _:
+        raise TypeError(f"tap() argument must be a Transformer or a callable, not {type(arg).__name__}")
 
   def apply[T](self, t: Callable[[Self], "Transformer[In, T]"]) -> "Transformer[In, T]":
     """Apply another pipeline to the current one."""
