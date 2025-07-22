@@ -176,6 +176,54 @@ class Transformer[In, Out]:
     """Apply another pipeline to the current one."""
     return t(self)
 
+  def loop(
+    self,
+    loop_transformer: "Transformer[Out, Out]",
+    condition: Callable[[list[Out]], bool] | Callable[[list[Out], PipelineContext], bool],
+    max_iterations: int | None = None,
+  ) -> "Transformer[In, Out]":
+    """
+    Repeatedly applies a transformer to each chunk until a condition is met.
+
+    The loop continues as long as the `condition` function returns `True` and
+    the number of iterations has not reached `max_iterations`. The provided
+    `loop_transformer` must take a chunk of a certain type and return a chunk
+    of the same type.
+
+    Args:
+        loop_transformer: The `Transformer` to apply in each iteration. Its
+                          input and output types must match the current pipeline's
+                          output type (`Transformer[Out, Out]`).
+        condition: A function that takes the current chunk (and optionally
+                   the `PipelineContext`) and returns `True` to continue the
+                   loop, or `False` to stop.
+        max_iterations: An optional integer to limit the number of repetitions
+                        and prevent infinite loops.
+
+    Returns:
+        The transformer instance for method chaining.
+    """
+    looped_func = loop_transformer.transformer
+    condition_is_context_aware = is_context_aware(condition)
+
+    def operation(chunk: list[Out], ctx: PipelineContext) -> list[Out]:
+      condition_checker = (  # noqa: E731
+        lambda current_chunk: condition(current_chunk, ctx) if condition_is_context_aware else condition(current_chunk)  # type: ignore
+      )
+
+      current_chunk = chunk
+
+      iterations = 0
+
+      # The loop now uses the single `condition_checker` function.
+      while (max_iterations is None or iterations < max_iterations) and condition_checker(current_chunk):  # type: ignore
+        current_chunk = looped_func(current_chunk, ctx)
+        iterations += 1
+
+      return current_chunk
+
+    return self._pipe(operation)
+
   def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
     """
     Executes the transformer on a data source.
