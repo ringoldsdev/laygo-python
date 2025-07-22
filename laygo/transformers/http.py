@@ -1,6 +1,4 @@
-"""
-The final, self-sufficient DistributedTransformer with corrected typing.
-"""
+"""Distributed transformer implementation with HTTP-based worker coordination."""
 
 from collections.abc import Callable
 from collections.abc import Iterable
@@ -37,7 +35,18 @@ def createHTTPTransformer[T](
   endpoint: str | None = None,
   max_workers: int = 4,
 ) -> "HTTPTransformer[T, T]":
-  """Create a new identity parallel transformer with an explicit type hint."""
+  """Create a new identity HTTP transformer with an explicit type hint.
+
+  Args:
+      _type_hint: Type hint for the data being processed.
+      base_url: The base URL for the HTTP worker service.
+      chunk_size: Size of chunks to process data in.
+      endpoint: Optional specific endpoint path.
+      max_workers: Maximum number of concurrent HTTP requests.
+
+  Returns:
+      A new identity HTTP transformer.
+  """
   return HTTPTransformer[T, T](
     base_url=base_url,
     endpoint=endpoint,
@@ -47,12 +56,29 @@ def createHTTPTransformer[T](
 
 
 class HTTPTransformer(Transformer[In, Out]):
-  """
-  A self-sufficient, chainable transformer that manages its own
-  distributed execution and worker endpoint definition.
+  """A self-sufficient, chainable transformer for distributed execution.
+
+  This transformer manages its own distributed execution by coordinating
+  with HTTP-based worker endpoints. It can automatically generate worker
+  endpoints based on the transformation logic or use predefined endpoints.
   """
 
-  def __init__(self, base_url: str, endpoint: str | None = None, max_workers: int = 8, chunk_size: int | None = None):
+  def __init__(
+    self,
+    base_url: str,
+    endpoint: str | None = None,
+    max_workers: int = 8,
+    chunk_size: int | None = None,
+  ) -> None:
+    """Initialize the HTTP transformer.
+
+    Args:
+        base_url: The base URL for the worker service.
+        endpoint: Optional specific endpoint path. If not provided,
+                 one will be auto-generated.
+        max_workers: Maximum number of concurrent HTTP requests.
+        chunk_size: Size of data chunks to process.
+    """
     super().__init__(chunk_size=chunk_size)
     self.base_url = base_url.rstrip("/")
     self.endpoint = endpoint
@@ -60,8 +86,12 @@ class HTTPTransformer(Transformer[In, Out]):
     self.session = requests.Session()
     self._worker_url: str | None = None
 
-  def _finalize_config(self):
-    """Determines the final worker URL, generating one if needed."""
+  def _finalize_config(self) -> None:
+    """Determine the final worker URL, generating one if needed.
+
+    If no explicit endpoint was provided, this method generates a unique
+    endpoint based on a hash of the transformation logic.
+    """
     if hasattr(self, "_worker_url") and self._worker_url:
       return
 
@@ -77,14 +107,30 @@ class HTTPTransformer(Transformer[In, Out]):
     self.endpoint = path.lstrip("/")
     self._worker_url = f"{self.base_url}/{self.endpoint}"
 
-  # --- Original HTTPTransformer Methods ---
-
   def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
-    """CLIENT-SIDE: Called by the Pipeline to start distributed processing."""
+    """Execute distributed processing on the data (CLIENT-SIDE).
+
+    This method is called by the Pipeline to start distributed processing.
+    It sends data chunks to worker endpoints via HTTP.
+
+    Args:
+        data: The input data to process.
+        context: Optional pipeline context (currently not used in HTTP mode).
+
+    Returns:
+        An iterator over the processed data.
+    """
     self._finalize_config()
 
     def process_chunk(chunk: list) -> list:
-      """Target for a thread: sends one chunk to the worker."""
+      """Send one chunk to the worker and return the result.
+
+      Args:
+          chunk: The data chunk to process.
+
+      Returns:
+          The processed chunk from the worker.
+      """
       try:
         response = self.session.post(
           self._worker_url,  # type: ignore
@@ -111,14 +157,26 @@ class HTTPTransformer(Transformer[In, Out]):
             continue
 
   def get_route(self):
-    """
-    Function that returns the route for the worker.
-    This is used to register the worker in a Flask app or similar.
+    """Get the route configuration for registering this transformer as a worker.
+
+    This method returns the necessary information to register the worker
+    in a Flask app or similar web framework.
+
+    Returns:
+        A tuple containing the endpoint path and the worker view function.
     """
     self._finalize_config()
 
     def worker_view_func(chunk: list, context: PipelineContext):
-      """The actual worker logic for this transformer."""
+      """The actual worker logic for this transformer.
+
+      Args:
+          chunk: The data chunk to process.
+          context: The pipeline context.
+
+      Returns:
+          The processed chunk.
+      """
       return self.transformer(chunk, context)
 
     return (f"/{self.endpoint}", worker_view_func)
@@ -151,8 +209,8 @@ class HTTPTransformer(Transformer[In, Out]):
     super().flatten()  # type: ignore
     return self  # type: ignore
 
-  def tap(self, function: PipelineFunction[Out, Any]) -> "HTTPTransformer[In, Out]":
-    super().tap(function)
+  def tap(self, arg: Union["Transformer[Out, Any]", PipelineFunction[Out, Any]]) -> "HTTPTransformer[In, Out]":
+    super().tap(arg)
     return self
 
   def apply[T](self, t: Callable[["HTTPTransformer[In, Out]"], "Transformer[In, T]"]) -> "HTTPTransformer[In, T]":

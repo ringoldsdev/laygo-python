@@ -32,9 +32,18 @@ def _process_chunk_for_multiprocessing[In, Out](
   shared_context: MutableMapping[str, Any],
   chunk: list[In],
 ) -> list[Out]:
-  """
-  Top-level function to process a single chunk.
-  'loky' will use cloudpickle to serialize the 'transformer' object.
+  """Process a single chunk at the top level.
+
+  This function is designed to work with 'loky' which uses cloudpickle
+  to serialize the 'transformer' object.
+
+  Args:
+      transformer: The transformation function to apply.
+      shared_context: The shared context for processing.
+      chunk: The data chunk to process.
+
+  Returns:
+      The processed chunk.
   """
   return transformer(chunk, shared_context)  # type: ignore
 
@@ -45,7 +54,17 @@ def createParallelTransformer[T](
   ordered: bool = True,
   chunk_size: int | None = None,
 ) -> "ParallelTransformer[T, T]":
-  """Create a new identity parallel transformer with an explicit type hint."""
+  """Create a new identity parallel transformer with an explicit type hint.
+
+  Args:
+      _type_hint: Type hint for the data being processed.
+      max_workers: Maximum number of worker processes.
+      ordered: Whether to preserve order of results.
+      chunk_size: Size of chunks to process data in.
+
+  Returns:
+      A new identity parallel transformer.
+  """
   return ParallelTransformer[T, T](
     max_workers=max_workers,
     ordered=ordered,
@@ -55,9 +74,11 @@ def createParallelTransformer[T](
 
 
 class ParallelTransformer[In, Out](Transformer[In, Out]):
-  """
-  A transformer that executes operations concurrently using multiple processes.
-  It uses 'loky' to support dynamically created transformation logic.
+  """A transformer that executes operations concurrently using multiple processes.
+
+  This transformer uses 'loky' to support dynamically created transformation
+  logic and provides true parallelism by bypassing Python's Global Interpreter
+  Lock (GIL). It's ideal for CPU-bound operations.
   """
 
   def __init__(
@@ -66,7 +87,16 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
     ordered: bool = True,
     chunk_size: int | None = None,
     transformer: InternalTransformer[In, Out] | None = None,
-  ):
+  ) -> None:
+    """Initialize the parallel transformer.
+
+    Args:
+        max_workers: Maximum number of worker processes.
+        ordered: If True, results are yielded in order. If False, results
+                 are yielded as they complete.
+        chunk_size: Size of data chunks to process.
+        transformer: The transformation logic chain.
+    """
     super().__init__(chunk_size, transformer)
     self.max_workers = max_workers
     self.ordered = ordered
@@ -79,6 +109,17 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
     max_workers: int = 4,
     ordered: bool = True,
   ) -> "ParallelTransformer[T, U]":
+    """Create a ParallelTransformer from an existing Transformer's logic.
+
+    Args:
+        transformer: The base transformer to copy the transformation logic from.
+        chunk_size: Optional chunk size override.
+        max_workers: Maximum number of worker processes.
+        ordered: If True, results are yielded in order.
+
+    Returns:
+        A new ParallelTransformer with the same transformation logic.
+    """
     return cls(
       chunk_size=chunk_size or transformer.chunk_size,
       transformer=copy.deepcopy(transformer.transformer),  # type: ignore
@@ -87,9 +128,16 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
     )
 
   def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
-    """
-    Executes the transformer on data concurrently. It uses the shared
-    context provided by the Pipeline, if available.
+    """Execute the transformer on data concurrently.
+
+    It uses the shared context provided by the Pipeline, if available.
+
+    Args:
+        data: The input data to process.
+        context: Optional pipeline context for shared state.
+
+    Returns:
+        An iterator over the transformed data.
     """
     run_context = context if context is not None else self.context
 
@@ -100,8 +148,6 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
       # Use the existing shared context and lock from the Pipeline.
       shared_context = run_context
       yield from self._execute_with_context(data, shared_context)
-      # The context is live, so no need to update it here.
-      # The Pipeline's __exit__ will handle final state.
     else:
       # Fallback for standalone use: create a temporary manager.
       with mp.Manager() as manager:
@@ -118,7 +164,15 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
         run_context.update(final_context_state)
 
   def _execute_with_context(self, data: Iterable[In], shared_context: MutableMapping[str, Any]) -> Iterator[Out]:
-    """Helper to run the execution logic with a given context."""
+    """Execute the transformation logic with a given context.
+
+    Args:
+        data: The input data to process.
+        shared_context: The shared context for the execution.
+
+    Returns:
+        An iterator over the transformed data.
+    """
     executor = get_reusable_executor(max_workers=self.max_workers)
 
     chunks_to_process = self._chunk_generator(data)
@@ -128,14 +182,22 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
     for result_chunk in processed_chunks_iterator:
       yield from result_chunk
 
-  # ... The rest of the file remains the same ...
   def _ordered_generator(
     self,
     chunks_iter: Iterator[list[In]],
     executor: ProcessPoolExecutor,
     shared_context: MutableMapping[str, Any],
   ) -> Iterator[list[Out]]:
-    """Generate results in their original order."""
+    """Generate results in their original order.
+
+    Args:
+        chunks_iter: Iterator over data chunks.
+        executor: The process pool executor.
+        shared_context: The shared context for processing.
+
+    Returns:
+        An iterator over processed chunks in order.
+    """
     futures: deque[Future[list[Out]]] = deque()
     for _ in range(self.max_workers + 1):
       try:
@@ -171,7 +233,16 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
     executor: ProcessPoolExecutor,
     shared_context: MutableMapping[str, Any],
   ) -> Iterator[list[Out]]:
-    """Generate results as they complete."""
+    """Generate results as they complete.
+
+    Args:
+        chunks_iter: Iterator over data chunks.
+        executor: The process pool executor.
+        shared_context: The shared context for processing.
+
+    Returns:
+        An iterator over processed chunks as they complete.
+    """
     futures = {
       executor.submit(
         _process_chunk_for_multiprocessing,
@@ -226,8 +297,8 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
     super().flatten()  # type: ignore
     return self  # type: ignore
 
-  def tap(self, function: PipelineFunction[Out, Any]) -> "ParallelTransformer[In, Out]":
-    super().tap(function)
+  def tap(self, arg: Union["Transformer[Out, Any]", PipelineFunction[Out, Any]]) -> "ParallelTransformer[In, Out]":
+    super().tap(arg)
     return self
 
   def apply[T](
