@@ -1,10 +1,10 @@
 <!-- PROJECT_TITLE -->
 
-# Laygo
+# Laygo - simple pipelines, serious scale
 
 <!-- PROJECT_TAGLINE -->
 
-**A lightweight Python library for building resilient, in-memory data pipelines with elegant, chainable syntax.**
+**Lightweight Python library for building resilient data pipelines with a fluent API, designed to scale effortlessly from a single script to hundreds of cores and thousands of distributed serverless functions.**
 
 <!-- BADGES_SECTION -->
 
@@ -17,17 +17,27 @@
 
 ## 🎯 Overview
 
-**Laygo** is a lightweight Python library for building resilient, in-memory data pipelines. It provides a fluent API to layer transformations, manage context, and handle errors with elegant, chainable syntax.
+**Laygo** is the lightweight Python library for data pipelines that I wish existed when I first started. It's designed from the ground up to make data engineering simpler, cleaner, and more intuitive, letting you build resilient, in-memory data workflows with an elegant, fluent API.
+
+It's built to grow with you. Scale seamlessly from a single local script to thousands of concurrent serverless functions with minimal operational overhead. 
 
 **Key Features:**
 
-- **Fluent API**: Chainable method syntax for readable data transformations
-- **Performance Optimized**: Uses chunked processing and list comprehensions for maximum speed
-- **Memory Efficient**: Lazy evaluation and streaming support for large datasets
-- **Parallel Processing**: Built-in ThreadPoolExecutor for CPU-intensive operations
-- **Context Management**: Shared state across pipeline operations for stateful processing
-- **Error Handling**: Comprehensive error handling
-- **Type Safety**: Full type hints support with generic types
+- **Fluent & Readable**: Craft complex data transformations with a clean, chainable method syntax that's easy to write and maintain.
+
+- **Performance Optimized**: Process data at maximum speed using chunked processing, lazy evaluation, and list comprehensions.
+
+- **Memory Efficient**: Built-in streaming and lazy iterators allow you to handle datasets far larger than available memory.
+
+- **Effortless Parallelism**: Accelerate CPU-intensive tasks seamlessly.
+
+- **Distributed by Design**: Your pipeline script is both the manager and the worker. When deployed as a serverless function or a container, this design allows you to scale out massively by simply running more instances of the same code. Your logic scales the same way on a thousand cores as it does on one.
+
+- **Powerful Context Management**: Share state and configuration across your entire pipeline for advanced, stateful processing.
+
+- **Resilient Error Handling**: Isolate and manage errors at the chunk level, preventing a single bad record from failing your entire job.
+
+- **Modern & Type-Safe**: Leverage full support for modern Python with generic type hints for robust, maintainable code.
 
 ---
 
