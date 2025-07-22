@@ -19,12 +19,23 @@ PipelineFunction = Callable[[T], Any]
 
 
 class Pipeline[T]:
-  """
-  Manages a data source and applies transformers to it.
-  Always uses a multiprocessing-safe shared context.
+  """Manages a data source and applies transformers to it.
+
+  A Pipeline provides a high-level interface for data processing by chaining
+  transformers together. It automatically manages a multiprocessing-safe
+  shared context that can be accessed by all transformers in the chain.
   """
 
-  def __init__(self, *data: Iterable[T]):
+  def __init__(self, *data: Iterable[T]) -> None:
+    """Initialize a pipeline with one or more data sources.
+
+    Args:
+        *data: One or more iterable data sources. If multiple sources are
+               provided, they will be chained together.
+
+    Raises:
+        ValueError: If no data sources are provided.
+    """
     if len(data) == 0:
       raise ValueError("At least one data source must be provided to Pipeline.")
     self.data_source: Iterable[T] = itertools.chain.from_iterable(data) if len(data) > 1 else data[0]
@@ -39,19 +50,25 @@ class Pipeline[T]:
     # Store reference to original context for final synchronization
     self._original_context_ref: PipelineContext | None = None
 
-  def __del__(self):
+  def __del__(self) -> None:
     """Clean up the multiprocessing manager when the pipeline is destroyed."""
     try:
       self._sync_context_back()
       self._manager.shutdown()
     except Exception:
-      pass  # Ignore errors during cleanup
+      pass
 
   def context(self, ctx: PipelineContext) -> "Pipeline[T]":
-    """
-    Updates the pipeline context and stores a reference to the original context.
+    """Update the pipeline context and store a reference to the original context.
+
     When the pipeline finishes processing, the original context will be updated
     with the final pipeline context data.
+
+    Args:
+        ctx: The pipeline context to use for this pipeline execution.
+
+    Returns:
+        The pipeline instance for method chaining.
     """
     # Store reference to the original context
     self._original_context_ref = ctx
@@ -60,9 +77,10 @@ class Pipeline[T]:
     return self
 
   def _sync_context_back(self) -> None:
-    """
-    Synchronize the final pipeline context back to the original context reference.
-    This is called after processing is complete.
+    """Synchronize the final pipeline context back to the original context reference.
+
+    This is called after processing is complete to update the original
+    context with any changes made during pipeline execution.
     """
     if self._original_context_ref is not None:
       # Copy the final context state back to the original context reference
@@ -72,15 +90,16 @@ class Pipeline[T]:
       self._original_context_ref.update(final_context_state)
 
   def transform[U](self, t: Callable[[Transformer[T, T]], Transformer[T, U]]) -> "Pipeline[U]":
-    """
-    Shorthand method to apply a transformation using a lambda function.
+    """Apply a transformation using a lambda function.
+
     Creates a Transformer under the hood and applies it to the pipeline.
+    This is a shorthand method for simple transformations.
 
     Args:
-        t: A callable that takes a transformer and returns a transformed transformer
+        t: A callable that takes a transformer and returns a transformed transformer.
 
     Returns:
-        A new Pipeline with the transformed data
+        A new Pipeline with the transformed data.
     """
     # Create a new transformer and apply the transformation function
     transformer = t(Transformer[T, T]())
@@ -101,53 +120,90 @@ class Pipeline[T]:
     | Callable[[Iterable[T]], Iterator[U]]
     | Callable[[Iterable[T], PipelineContext], Iterator[U]],
   ) -> "Pipeline[U]":
-    """
-    Applies a transformer to the current data source. The pipeline's
-    managed context is passed down.
+    """Apply a transformer to the current data source.
+
+    The pipeline's managed context is passed down to the transformer.
+
+    Args:
+        transformer: Either a Transformer instance or a callable function
+                    that processes the data.
+
+    Returns:
+        A new Pipeline with the transformed data.
+
+    Raises:
+        TypeError: If the transformer is not a supported type.
     """
     match transformer:
       case Transformer():
-        # The transformer is called with self.ctx, which is the
-        # shared mp.Manager.dict proxy when inside a 'with' block.
         self.processed_data = transformer(self.processed_data, self.ctx)  # type: ignore
       case _ if callable(transformer):
         if is_context_aware(transformer):
-          processed_transformer = transformer
+          self.processed_data = transformer(self.processed_data, self.ctx)  # type: ignore
         else:
-          processed_transformer = lambda data, ctx: transformer(data)  # type: ignore  # noqa: E731
-        self.processed_data = processed_transformer(self.processed_data, self.ctx)  # type: ignore
+          self.processed_data = transformer(self.processed_data)  # type: ignore
       case _:
         raise TypeError("Transformer must be a Transformer instance or a callable function")
 
     return self  # type: ignore
 
   def buffer(self, size: int) -> "Pipeline[T]":
+    """Buffer the pipeline using threaded processing.
+
+    Args:
+        size: The number of worker threads to use for buffering.
+
+    Returns:
+        The pipeline instance for method chaining.
+    """
     self.apply(ThreadedTransformer(max_workers=size))
     return self
 
   def __iter__(self) -> Iterator[T]:
-    """Allows the pipeline to be iterated over."""
+    """Allow the pipeline to be iterated over.
+
+    Returns:
+        An iterator over the processed data.
+    """
     yield from self.processed_data
 
   def to_list(self) -> list[T]:
-    """Executes the pipeline and returns the results as a list."""
+    """Execute the pipeline and return the results as a list.
+
+    Returns:
+        A list containing all processed items from the pipeline.
+    """
     return list(self.processed_data)
 
   def each(self, function: PipelineFunction[T]) -> None:
-    """Applies a function to each element (terminal operation)."""
-    # Context needs to be accessed from the function if it's context-aware,
-    # but the pipeline itself doesn't own a context. This is a design choice.
-    # For simplicity, we assume the function is not context-aware here
-    # or that context is handled within the Transformers.
+    """Apply a function to each element (terminal operation).
+
+    Args:
+        function: The function to apply to each element.
+    """
     for item in self.processed_data:
       function(item)
 
   def first(self, n: int = 1) -> list[T]:
-    """Gets the first n elements of the pipeline (terminal operation)."""
+    """Get the first n elements of the pipeline (terminal operation).
+
+    Args:
+        n: The number of elements to retrieve.
+
+    Returns:
+        A list containing the first n elements.
+
+    Raises:
+        AssertionError: If n is less than 1.
+    """
     assert n >= 1, "n must be at least 1"
     return list(itertools.islice(self.processed_data, n))
 
   def consume(self) -> None:
-    """Consumes the pipeline without returning results."""
+    """Consume the pipeline without returning results.
+
+    This is useful when you want to execute the pipeline for side effects
+    without collecting the results.
+    """
     for _ in self.processed_data:
       pass

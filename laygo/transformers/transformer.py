@@ -1,3 +1,5 @@
+"""Core transformer implementation for data pipeline operations."""
+
 from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Iterator
@@ -26,14 +28,28 @@ type ChunkErrorHandler[In, U] = Callable[[list[In], Exception, PipelineContext],
 
 
 def createTransformer[T](_type_hint: type[T], chunk_size: int = DEFAULT_CHUNK_SIZE) -> "Transformer[T, T]":
-  """Create a new identity pipeline with an explicit type hint."""
+  """Create a new identity pipeline with an explicit type hint.
+
+  Args:
+      _type_hint: Type hint for the data being processed.
+      chunk_size: Size of chunks to process data in.
+
+  Returns:
+      A new identity transformer that passes data through unchanged.
+  """
   return Transformer[T, T](chunk_size=chunk_size)  # type: ignore
 
 
 def build_chunk_generator[T](chunk_size: int) -> Callable[[Iterable[T]], Iterator[list[T]]]:
-  """
-  Returns a function that breaks an iterable into chunks of a specified size.
+  """Return a function that breaks an iterable into chunks of a specified size.
+
   This is useful for creating transformers that process data in manageable chunks.
+
+  Args:
+      chunk_size: The size of each chunk.
+
+  Returns:
+      A function that takes an iterable and returns an iterator of chunks.
   """
 
   def chunk_generator(data: Iterable[T]) -> Iterator[list[T]]:
@@ -45,15 +61,25 @@ def build_chunk_generator[T](chunk_size: int) -> Callable[[Iterable[T]], Iterato
 
 
 class Transformer[In, Out]:
-  """
-  Defines and composes data transformations by passing context explicitly.
+  """Define and compose data transformations by passing context explicitly.
+
+  A Transformer represents a data processing pipeline that can be chained
+  together with other transformers. It supports context-aware operations,
+  error handling, and chunked processing for memory efficiency.
   """
 
   def __init__(
     self,
     chunk_size: int | None = DEFAULT_CHUNK_SIZE,
     transformer: InternalTransformer[In, Out] | None = None,
-  ):
+  ) -> None:
+    """Initialize a new transformer.
+
+    Args:
+        chunk_size: Size of chunks to process data in. If None, processes
+                   all data as a single chunk.
+        transformer: Optional existing transformer logic to use.
+    """
     self.chunk_size = chunk_size
     self.context: PipelineContext = PipelineContext()
     # The default transformer now accepts and ignores a context argument.
@@ -67,21 +93,42 @@ class Transformer[In, Out]:
     transformer: "Transformer[T, U]",
     chunk_size: int | None = None,
   ) -> "Transformer[T, U]":
-    """Create a new transformer from an existing one, copying its logic."""
+    """Create a new transformer from an existing one, copying its logic.
+
+    Args:
+        transformer: The source transformer to copy logic from.
+        chunk_size: Optional chunk size override.
+
+    Returns:
+        A new transformer with the same logic as the source.
+    """
     return cls(
       chunk_size=chunk_size or transformer.chunk_size,
       transformer=copy.deepcopy(transformer.transformer),  # type: ignore
     )
 
   def set_chunker(self, chunker: Callable[[Iterable[In]], Iterator[list[In]]]) -> "Transformer[In, Out]":
-    """Sets a custom chunking function for the transformer."""
+    """Set a custom chunking function for the transformer.
+
+    Args:
+        chunker: A function that takes an iterable and returns an iterator
+                of chunks.
+
+    Returns:
+        The transformer instance for method chaining.
+    """
     self._chunk_generator = chunker
     return self
 
   def on_error(self, handler: ChunkErrorHandler[In, Out] | ErrorHandler) -> "Transformer[In, Out]":
-    """Registers an error handler for the transformer."""
-    # This method is a placeholder for future error handling logic.
-    # Currently, it does not modify the transformer behavior.
+    """Register an error handler for the transformer.
+
+    Args:
+        handler: Either an ErrorHandler instance or a chunk error handler function.
+
+    Returns:
+        The transformer instance for method chaining.
+    """
     match handler:
       case ErrorHandler():
         self.error_handler = handler
@@ -90,21 +137,43 @@ class Transformer[In, Out]:
     return self
 
   def _pipe[U](self, operation: Callable[[list[Out], PipelineContext], list[U]]) -> "Transformer[In, U]":
-    """Composes the current transformer with a new context-aware operation."""
+    """Compose the current transformer with a new context-aware operation.
+
+    Args:
+        operation: A function that takes a chunk and context, returning a transformed chunk.
+
+    Returns:
+        A new transformer with the composed operation.
+    """
     prev_transformer = self.transformer
     # The new transformer chain ensures the context `ctx` is passed at each step.
     self.transformer = lambda chunk, ctx: operation(prev_transformer(chunk, ctx), ctx)  # type: ignore
     return self  # type: ignore
 
   def map[U](self, function: PipelineFunction[Out, U]) -> "Transformer[In, U]":
-    """Transforms elements, passing context explicitly to the mapping function."""
+    """Transform elements, passing context explicitly to the mapping function.
+
+    Args:
+        function: A function to apply to each element. Can be context-aware.
+
+    Returns:
+        A new transformer with the mapping operation applied.
+    """
     if is_context_aware(function):
       return self._pipe(lambda chunk, ctx: [function(x, ctx) for x in chunk])
 
     return self._pipe(lambda chunk, _ctx: [function(x) for x in chunk])  # type: ignore
 
   def filter(self, predicate: PipelineFunction[Out, bool]) -> "Transformer[In, Out]":
-    """Filters elements, passing context explicitly to the predicate function."""
+    """Filter elements, passing context explicitly to the predicate function.
+
+    Args:
+        predicate: A function that returns True for elements to keep.
+                  Can be context-aware.
+
+    Returns:
+        A transformer with the filtering operation applied.
+    """
     if is_context_aware(predicate):
       return self._pipe(lambda chunk, ctx: [x for x in chunk if predicate(x, ctx)])
 
@@ -120,7 +189,14 @@ class Transformer[In, Out]:
   def flatten[T](
     self: Union["Transformer[In, list[T]]", "Transformer[In, tuple[T, ...]]", "Transformer[In, set[T]]"],
   ) -> "Transformer[In, T]":
-    """Flattens nested lists; the context is passed through the operation."""
+    """Flatten nested collections into individual elements.
+
+    Args:
+        self: A transformer that outputs collections (list, tuple, or set).
+
+    Returns:
+        A transformer that outputs individual elements from the collections.
+    """
     return self._pipe(lambda chunk, ctx: [item for sublist in chunk for item in sublist])  # type: ignore
 
   @overload
@@ -133,20 +209,22 @@ class Transformer[In, Out]:
     self,
     arg: Union["Transformer[Out, Any]", PipelineFunction[Out, Any]],
   ) -> "Transformer[In, Out]":
-    """
-    Applies a side-effect without modifying the main data stream.
+    """Apply a side-effect without modifying the main data stream.
 
     This method can be used in two ways:
-    1.  With a `Transformer`: Applies a sub-pipeline to each chunk for side-effects
-        (e.g., logging a chunk), discarding the sub-pipeline's output.
-    2.  With a `function`: Applies a function to each element individually for
-        side-effects (e.g., printing an item).
+    1. With a `Transformer`: Applies a sub-pipeline to each chunk for side-effects
+       (e.g., logging a chunk), discarding the sub-pipeline's output.
+    2. With a `function`: Applies a function to each element individually for
+       side-effects (e.g., printing an item).
 
     Args:
         arg: A `Transformer` instance or a function to be applied for side-effects.
 
     Returns:
         The transformer instance for method chaining.
+
+    Raises:
+        TypeError: If the argument is not a Transformer or callable.
     """
     match arg:
       # Case 1: The argument is another Transformer
@@ -173,7 +251,14 @@ class Transformer[In, Out]:
         raise TypeError(f"tap() argument must be a Transformer or a callable, not {type(arg).__name__}")
 
   def apply[T](self, t: Callable[[Self], "Transformer[In, T]"]) -> "Transformer[In, T]":
-    """Apply another pipeline to the current one."""
+    """Apply another pipeline to the current one.
+
+    Args:
+        t: A function that takes this transformer and returns a new transformer.
+
+    Returns:
+        The result of applying the function to this transformer.
+    """
     return t(self)
 
   def loop(
@@ -225,11 +310,17 @@ class Transformer[In, Out]:
     return self._pipe(operation)
 
   def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
-    """
-    Executes the transformer on a data source.
+    """Execute the transformer on a data source.
 
     It uses the provided `context` by reference. If none is provided, it uses
     the transformer's internal context.
+
+    Args:
+        data: The input data to process.
+        context: Optional pipeline context to use during processing.
+
+    Returns:
+        An iterator over the transformed data.
     """
     # Use the provided context by reference, or default to the instance's context.
     run_context = context or self.context
@@ -239,7 +330,15 @@ class Transformer[In, Out]:
       yield from self.transformer(chunk, run_context)
 
   def reduce[U](self, function: PipelineReduceFunction[U, Out], initial: U):
-    """Reduces elements to a single value (terminal operation)."""
+    """Reduce elements to a single value (terminal operation).
+
+    Args:
+        function: The reduction function. Can be context-aware.
+        initial: The initial value for the reduction.
+
+    Returns:
+        A function that executes the reduction when called with data.
+    """
 
     if is_context_aware_reduce(function):
 
@@ -272,9 +371,16 @@ class Transformer[In, Out]:
     sub_pipeline_builder: Callable[["Transformer[Out, Out]"], "Transformer[Out, U]"],
     on_error: ChunkErrorHandler[Out, U] | None = None,
   ) -> "Transformer[In, U]":
-    """
-    Isolates a sub-pipeline in a chunk-based try-catch block.
+    """Isolate a sub-pipeline in a chunk-based try-catch block.
+
     If the sub-pipeline fails for a chunk, the on_error handler is invoked.
+
+    Args:
+        sub_pipeline_builder: A function that builds the sub-pipeline to protect.
+        on_error: Optional error handler for when the sub-pipeline fails.
+
+    Returns:
+        A transformer with error handling applied.
     """
 
     if on_error:
@@ -299,8 +405,7 @@ class Transformer[In, Out]:
     return self._pipe(operation)  # type: ignore
 
   def short_circuit(self, function: Callable[[PipelineContext], bool | None]) -> "Transformer[In, Out]":
-    """
-    Executes a function on the context before processing the next step for a chunk.
+    """Execute a function on the context before processing the next step for a chunk.
 
     This can be used for short-circuiting by raising an exception based on the
     context's state, which halts the pipeline. If the function executes
@@ -309,10 +414,15 @@ class Transformer[In, Out]:
 
     Args:
         function: A callable that accepts the `PipelineContext` as its sole
-                  argument. Its return value is ignored.
+                  argument. If it returns True, the pipeline is stopped with
+                  an exception.
 
     Returns:
         The transformer instance for method chaining.
+
+    Raises:
+        RuntimeError: If the function returns True, indicating a short-circuit
+                     condition has been met.
     """
 
     def operation(chunk: list[Out], ctx: PipelineContext) -> list[Out]:

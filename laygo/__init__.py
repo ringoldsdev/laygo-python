@@ -1,5 +1,7 @@
-"""
-Laygo - A lightweight Python library for building resilient, in-memory data pipelines
+"""Laygo - A lightweight Python library for building resilient, in-memory data pipelines.
+
+This library provides a modern, type-safe approach to data processing with
+support for parallel execution, error handling, and context-aware operations.
 """
 
 from laygo.errors import ErrorHandler

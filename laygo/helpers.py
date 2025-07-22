@@ -4,8 +4,13 @@ from typing import Any
 from typing import TypeGuard
 
 
-class PipelineContext(dict):
-  """Generic, untyped context available to all pipeline operations."""
+class PipelineContext(dict[str, Any]):
+  """Generic, untyped context available to all pipeline operations.
+
+  A dictionary-based context that can store arbitrary data shared across
+  pipeline operations. This allows passing state and configuration between
+  different stages of data processing.
+  """
 
   pass
 
@@ -16,20 +21,32 @@ ContextAwareReduceCallable = Callable[[Any, Any, PipelineContext], Any]
 
 
 def is_context_aware(func: Callable[..., Any]) -> TypeGuard[ContextAwareCallable]:
-  """
-  Checks if a function is "context-aware" by inspecting its signature.
+  """Check if a function is context-aware by inspecting its signature.
 
-  This function uses a TypeGuard, allowing Mypy to narrow the type of
-  the checked function in conditional blocks.
+  A context-aware function accepts a PipelineContext as its second parameter,
+  allowing it to access shared state during pipeline execution.
+
+  Args:
+      func: The function to inspect for context awareness.
+
+  Returns:
+      True if the function accepts more than one parameter (indicating it's
+      context-aware), False otherwise.
   """
   return len(inspect.signature(func).parameters) > 1
 
 
 def is_context_aware_reduce(func: Callable[..., Any]) -> TypeGuard[ContextAwareReduceCallable]:
-  """
-  Checks if a function is "context-aware" by inspecting its signature.
+  """Check if a reduce function is context-aware by inspecting its signature.
 
-  This function uses a TypeGuard, allowing Mypy to narrow the type of
-  the checked function in conditional blocks.
+  A context-aware reduce function accepts an accumulator, current value,
+  and PipelineContext as its three parameters.
+
+  Args:
+      func: The reduce function to inspect for context awareness.
+
+  Returns:
+      True if the function accepts more than two parameters (indicating it's
+      context-aware), False otherwise.
   """
   return len(inspect.signature(func).parameters) > 2

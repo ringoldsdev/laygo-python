@@ -39,7 +39,17 @@ def createThreadedTransformer[T](
   ordered: bool = True,
   chunk_size: int = DEFAULT_CHUNK_SIZE,
 ) -> "ThreadedTransformer[T, T]":
-  """Create a new identity threaded transformer with an explicit type hint."""
+  """Create a new identity threaded transformer with an explicit type hint.
+
+  Args:
+      _type_hint: Type hint for the data being processed.
+      max_workers: Maximum number of worker threads.
+      ordered: Whether to preserve order of results.
+      chunk_size: Size of chunks to process data in.
+
+  Returns:
+      A new identity threaded transformer.
+  """
   return ThreadedTransformer[T, T](
     max_workers=max_workers,
     ordered=ordered,
@@ -49,8 +59,11 @@ def createThreadedTransformer[T](
 
 
 class ThreadedTransformer[In, Out](Transformer[In, Out]):
-  """
-  A transformer that executes operations concurrently using multiple threads.
+  """A transformer that executes operations concurrently using multiple threads.
+
+  This transformer processes data chunks in parallel using a thread pool,
+  which is effective for I/O-bound operations but may be limited by the
+  Global Interpreter Lock (GIL) for CPU-bound tasks.
   """
 
   def __init__(
@@ -59,9 +72,8 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
     ordered: bool = True,
     chunk_size: int | None = None,
     transformer: InternalTransformer[In, Out] | None = None,
-  ):
-    """
-    Initialize the threaded transformer.
+  ) -> None:
+    """Initialize the threaded transformer.
 
     Args:
         max_workers: Maximum number of worker threads.
@@ -82,8 +94,7 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
     max_workers: int = 4,
     ordered: bool = True,
   ) -> "ThreadedTransformer[T, U]":
-    """
-    Create a ThreadedTransformer from an existing Transformer's logic.
+    """Create a ThreadedTransformer from an existing Transformer's logic.
 
     Args:
         transformer: The base transformer to copy the transformation logic from.
@@ -102,9 +113,16 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
     )
 
   def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
-    """
-    Executes the transformer on data concurrently. It uses the shared
-    context provided by the Pipeline, if available.
+    """Execute the transformer on data concurrently.
+
+    It uses the shared context provided by the Pipeline, if available.
+
+    Args:
+        data: The input data to process.
+        context: Optional pipeline context for shared state.
+
+    Returns:
+        An iterator over the transformed data.
     """
     run_context = context if context is not None else self.context
 
@@ -115,8 +133,6 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
       # Use the existing shared context and lock from the Pipeline.
       shared_context = run_context
       yield from self._execute_with_context(data, shared_context)
-      # The context is live, so no need to update it here.
-      # The Pipeline's __del__ will handle final state.
     else:
       # Fallback for standalone use: create a thread-safe context.
       # Since threads share memory, we can use the context directly with a lock.
@@ -124,15 +140,27 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
         run_context["lock"] = threading.Lock()
 
       yield from self._execute_with_context(data, run_context)
-      # Context is already updated in-place for threads (shared memory)
 
   def _execute_with_context(self, data: Iterable[In], shared_context: MutableMapping[str, Any]) -> Iterator[Out]:
-    """Helper to run the execution logic with a given context."""
+    """Execute the transformation logic with a given context.
+
+    Args:
+        data: The input data to process.
+        shared_context: The shared context for the execution.
+
+    Returns:
+        An iterator over the transformed data.
+    """
 
     def process_chunk(chunk: list[In], shared_context: MutableMapping[str, Any]) -> list[Out]:
-      """
-      Process a single chunk by passing the chunk and context explicitly
-      to the transformer chain. This is safer and avoids mutating self.
+      """Process a single chunk by passing the chunk and context explicitly.
+
+      Args:
+          chunk: The data chunk to process.
+          shared_context: The shared context for processing.
+
+      Returns:
+          The processed chunk.
       """
       return self.transformer(chunk, shared_context)  # type: ignore
 
@@ -211,8 +239,8 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
     super().flatten()  # type: ignore
     return self  # type: ignore
 
-  def tap(self, function: PipelineFunction[Out, Any]) -> "ThreadedTransformer[In, Out]":
-    super().tap(function)
+  def tap(self, arg: Union["Transformer[Out, Any]", PipelineFunction[Out, Any]]) -> "ThreadedTransformer[In, Out]":
+    super().tap(arg)
     return self
 
   def apply[T](
