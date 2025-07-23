@@ -19,7 +19,7 @@
 
 **Laygo** is the lightweight Python library for data pipelines that I wish existed when I first started. It's designed from the ground up to make data engineering simpler, cleaner, and more intuitive, letting you build resilient, in-memory data workflows with an elegant, fluent API.
 
-It's built to grow with you. Scale seamlessly from a single local script to thousands of concurrent serverless functions with minimal operational overhead. 
+It's built to grow with you. Scale seamlessly from a single local script to thousands of concurrent serverless functions with minimal operational overhead.
 
 **Key Features:**
 
@@ -30,6 +30,8 @@ It's built to grow with you. Scale seamlessly from a single local script to thou
 - **Memory Efficient**: Built-in streaming and lazy iterators allow you to handle datasets far larger than available memory.
 
 - **Effortless Parallelism**: Accelerate CPU-intensive tasks seamlessly.
+
+- **Fan-out Processing**: Split pipelines into multiple concurrent branches for parallel analysis of the same dataset.
 
 - **Distributed by Design**: Your pipeline script is both the manager and the worker. When deployed as a serverless function or a container, this design allows you to scale out massively by simply running more instances of the same code. Your logic scales the same way on a thousand cores as it does on one.
 
@@ -195,6 +197,110 @@ results = (
     .transform(lambda t: t.filter(lambda x: x > 100))
     .first(1000)  # Get first 1000 results
 )
+```
+
+### Pipeline Branching (Fan-out Processing)
+
+```python
+from laygo import Pipeline
+from laygo.transformers.transformer import createTransformer
+
+# Sample data: customer orders
+orders = [
+    {"id": 1, "customer": "Alice", "amount": 150, "product": "laptop"},
+    {"id": 2, "customer": "Bob", "amount": 25, "product": "book"},
+    {"id": 3, "customer": "Charlie", "amount": 75, "product": "headphones"},
+    {"id": 4, "customer": "Diana", "amount": 200, "product": "monitor"},
+    {"id": 5, "customer": "Eve", "amount": 30, "product": "mouse"},
+]
+
+# Create different analysis branches
+high_value_analysis = (
+    createTransformer(dict)
+    .filter(lambda order: order["amount"] > 100)
+    .map(lambda order: {
+        "customer": order["customer"],
+        "amount": order["amount"],
+        "category": "high_value"
+    })
+)
+
+product_summary = (
+    createTransformer(dict)
+    .map(lambda order: {"product": order["product"], "count": 1})
+    # Group by product and sum counts (simplified example)
+)
+
+customer_spending = (
+    createTransformer(dict)
+    .map(lambda order: {
+        "customer": order["customer"],
+        "total_spent": order["amount"]
+    })
+)
+
+# Branch the pipeline into multiple concurrent analyses
+results = Pipeline(orders).branch({
+    "high_value_orders": high_value_analysis,
+    "products": product_summary,
+    "customer_totals": customer_spending
+})
+
+print("High value orders:", results["high_value_orders"])
+# [{'customer': 'Alice', 'amount': 150, 'category': 'high_value'}, 
+#  {'customer': 'Diana', 'amount': 200, 'category': 'high_value'}]
+
+print("Product analysis:", len(results["products"]))
+# 5 (all products processed)
+
+print("Customer spending:", len(results["customer_totals"]))  
+# 5 (all customers processed)
+```
+
+### Advanced Branching with Error Isolation
+
+```python
+from laygo import Pipeline
+from laygo.transformers.transformer import createTransformer
+
+# Data with potential issues
+mixed_data = [1, 2, "invalid", 4, 5, None, 7, 8]
+
+# Branch 1: Safe numeric processing
+safe_numbers = (
+    createTransformer(int | str | None)
+    .filter(lambda x: isinstance(x, int) and x is not None)
+    .map(lambda x: x * 2)
+)
+
+# Branch 2: String processing with error handling
+string_processing = (
+    createTransformer(int | str | None)
+    .filter(lambda x: isinstance(x, str))
+    .map(lambda x: f"processed_{x}")
+    .catch(lambda t: t.map(lambda x: "error_handled"))
+)
+
+# Branch 3: Statistical analysis
+stats_analysis = (
+    createTransformer(int | str | None)
+    .filter(lambda x: isinstance(x, int) and x is not None)
+    .map(lambda x: x)  # Pass through for stats
+)
+
+# Execute all branches concurrently
+results = Pipeline(mixed_data).branch({
+    "numbers": safe_numbers,
+    "strings": string_processing,
+    "stats": stats_analysis
+}, batch_size=100)
+
+print("Processed numbers:", results["numbers"])  # [2, 4, 8, 10, 14, 16]
+print("Processed strings:", results["strings"])  # ['processed_invalid']
+print("Stats data:", results["stats"])           # [1, 2, 4, 5, 7, 8]
+
+# Each branch processes the complete dataset independently
+# Errors in one branch don't affect others
 ```
 
 ### Error Handling and Recovery
