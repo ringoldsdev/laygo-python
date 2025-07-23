@@ -265,7 +265,7 @@ class TestTransformerReduceOperations:
     """Test reduce with sum operation."""
     transformer = createTransformer(int)
     reducer = transformer.reduce(lambda acc, x: acc + x, initial=0)
-    result = list(reducer([1, 2, 3, 4]))
+    result = list(reducer([1, 2, 3, 4], None))
     assert result == [10]
 
   def test_reduce_with_context(self):
@@ -280,8 +280,83 @@ class TestTransformerReduceOperations:
     """Test reduce after map transformation."""
     transformer = createTransformer(int).map(lambda x: x * 2)
     reducer = transformer.reduce(lambda acc, x: acc + x, initial=0)
-    result = list(reducer([1, 2, 3]))
+    result = list(reducer([1, 2, 3], None))
     assert result == [12]  # [2, 4, 6] summed = 12
+
+  def test_reduce_per_chunk_basic(self):
+    """Test reduce with per_chunk=True for basic operation."""
+    transformer = createTransformer(int, chunk_size=2).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
+    result = list(transformer([1, 2, 3, 4, 5]))
+    # With chunk_size=2: [1, 2] -> 3, [3, 4] -> 7, [5] -> 5
+    assert result == [3, 7, 5]
+
+  def test_reduce_per_chunk_with_context(self):
+    """Test reduce with per_chunk=True and context-aware function."""
+    context = PipelineContext({"multiplier": 2})
+    transformer = createTransformer(int, chunk_size=2).reduce(
+      lambda acc, x, ctx: acc + (x * ctx["multiplier"]), initial=0, per_chunk=True
+    )
+    result = list(transformer([1, 2, 3], context))
+    # With chunk_size=2: [1, 2] -> (1*2) + (2*2) = 6, [3] -> (3*2) = 6
+    assert result == [6, 6]
+
+  def test_reduce_per_chunk_empty_chunks(self):
+    """Test reduce with per_chunk=True handles empty chunks correctly."""
+    transformer = createTransformer(int, chunk_size=5).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
+    result = list(transformer([]))
+    assert result == []
+
+  def test_reduce_per_chunk_single_element_chunks(self):
+    """Test reduce with per_chunk=True with single element chunks."""
+    transformer = createTransformer(int, chunk_size=1).reduce(lambda acc, x: acc + x, initial=10, per_chunk=True)
+    result = list(transformer([1, 2, 3]))
+    # Each chunk has one element: [1] -> 10+1=11, [2] -> 10+2=12, [3] -> 10+3=13
+    assert result == [11, 12, 13]
+
+  def test_reduce_per_chunk_chaining(self):
+    """Test reduce with per_chunk=True can be chained with other operations."""
+    transformer = (
+      createTransformer(int, chunk_size=2)
+      .map(lambda x: x * 2)
+      .reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
+      .map(lambda x: x * 10)
+    )
+    result = list(transformer([1, 2, 3]))
+    # After map: [2, 4, 6]
+    # With chunk_size=2: [2, 4] -> 6, [6] -> 6
+    # After second map: [60, 60]
+    assert result == [60, 60]
+
+  def test_reduce_per_chunk_different_chunk_sizes(self):
+    """Test reduce with per_chunk=True works with different chunk sizes."""
+    data = [1, 2, 3, 4, 5, 6]
+
+    # Test with chunk_size=2
+    transformer_2 = createTransformer(int, chunk_size=2).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
+    result_2 = list(transformer_2(data))
+    assert result_2 == [3, 7, 11]  # [1,2]->3, [3,4]->7, [5,6]->11
+
+    # Test with chunk_size=3
+    transformer_3 = createTransformer(int, chunk_size=3).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
+    result_3 = list(transformer_3(data))
+    assert result_3 == [6, 15]  # [1,2,3]->6, [4,5,6]->15
+
+  def test_reduce_per_chunk_versus_terminal(self):
+    """Test that per_chunk=True and per_chunk=False produce different behaviors."""
+    data = [1, 2, 3, 4]
+
+    # Terminal reduce (per_chunk=False) - returns a callable
+    transformer_terminal = createTransformer(int, chunk_size=2)
+    reducer_terminal = transformer_terminal.reduce(lambda acc, x: acc + x, initial=0, per_chunk=False)
+    result_terminal = list(reducer_terminal(data, None))
+    assert result_terminal == [10]  # Sum of all elements
+
+    # Per-chunk reduce (per_chunk=True) - returns a transformer
+    transformer_per_chunk = createTransformer(int, chunk_size=2).reduce(
+      lambda acc, x: acc + x, initial=0, per_chunk=True
+    )
+    result_per_chunk = list(transformer_per_chunk(data))
+    assert result_per_chunk == [3, 7]  # Sum per chunk [1,2]->3, [3,4]->7
 
 
 class TestTransformerEdgeCases:
