@@ -7,6 +7,7 @@ import copy
 from functools import reduce
 import itertools
 from typing import Any
+from typing import Literal
 from typing import Self
 from typing import Union
 from typing import overload
@@ -343,42 +344,81 @@ class Transformer[In, Out]:
       # The context is now passed explicitly through the transformer chain.
       yield from self.transformer(chunk, run_context)
 
-  def reduce[U](self, function: PipelineReduceFunction[U, Out], initial: U):
-    """Reduce elements to a single value (terminal operation).
+  @overload
+  def reduce[U](
+    self,
+    function: PipelineReduceFunction[U, Out],
+    initial: U,
+    *,
+    per_chunk: Literal[True],
+  ) -> "Transformer[In, U]":
+    """Reduces each chunk to a single value (chainable operation)."""
+    ...
 
-    Args:
-        function: The reduction function. Can be context-aware.
-        initial: The initial value for the reduction.
+  @overload
+  def reduce[U](
+    self,
+    function: PipelineReduceFunction[U, Out],
+    initial: U,
+    *,
+    per_chunk: Literal[False] = False,
+  ) -> Callable[[Iterable[In], PipelineContext | None], Iterator[U]]:
+    """Reduces the entire dataset to a single value (terminal operation)."""
+    ...
 
-    Returns:
-        A function that executes the reduction when called with data.
-    """
+  def reduce[U](
+    self,
+    function: PipelineReduceFunction[U, Out],
+    initial: U,
+    *,
+    per_chunk: bool = False,
+  ) -> Union["Transformer[In, U]", Callable[[Iterable[In], PipelineContext | None], Iterator[U]]]:  # type: ignore
+    """Reduces elements to a single value, either per-chunk or for the entire dataset."""
+    if per_chunk:
+      # --- Efficient "per-chunk" logic (chainable) ---
 
-    if is_context_aware_reduce(function):
+      # The context-awareness check is now hoisted and executed only ONCE.
+      if is_context_aware_reduce(function):
+        # We define a specialized operation for the context-aware case.
+        def reduce_chunk_operation(chunk: list[Out], ctx: PipelineContext) -> list[U]:
+          if not chunk:
+            return []
+          # No check happens here; we know the function needs the context.
+          wrapper = lambda acc, val: function(acc, val, ctx)  # noqa: E731, W291
+          return [reduce(wrapper, chunk, initial)]
+      else:
+        # We define a specialized, simpler operation for the non-aware case.
+        def reduce_chunk_operation(chunk: list[Out], ctx: PipelineContext) -> list[U]:
+          if not chunk:
+            return []
+          # No check happens here; the function is called directly.
+          return [reduce(function, chunk, initial)]  # type: ignore
 
-      def _reduce_with_context(data: Iterable[In], context: PipelineContext | None = None) -> Iterator[U]:
-        # The context for the run is determined here.
-        run_context = context or self.context
+      return self._pipe(reduce_chunk_operation)
 
-        data_iterator = self(data, run_context)
+    # --- "Entire dataset" logic with `match` (terminal) ---
+    match is_context_aware_reduce(function):
+      case True:
 
-        def function_wrapper(acc: U, value: Out) -> U:
-          return function(acc, value, run_context)
+        def _reduce_with_context(data: Iterable[In], context: PipelineContext | None = None) -> Iterator[U]:
+          run_context = context or self.context
+          data_iterator = self(data, run_context)
 
-        yield reduce(function_wrapper, data_iterator, initial)
+          def function_wrapper(acc, val):
+            return function(acc, val, run_context)  # type: ignore
 
-      return _reduce_with_context
+          yield reduce(function_wrapper, data_iterator, initial)
 
-    # Not context-aware, so we adapt the function to ignore the context.
-    def _reduce(data: Iterable[In], context: PipelineContext | None = None) -> Iterator[U]:
-      # The context for the run is determined here.
-      run_context = context or self.context
+        return _reduce_with_context
 
-      data_iterator = self(data, run_context)
+      case False:
 
-      yield reduce(function, data_iterator, initial)  # type: ignore
+        def _reduce(data: Iterable[In], context: PipelineContext | None = None) -> Iterator[U]:
+          run_context = context or self.context
+          data_iterator = self(data, run_context)
+          yield reduce(function, data_iterator, initial)  # type: ignore
 
-    return _reduce
+        return _reduce
 
   def catch[U](
     self,
