@@ -1,10 +1,12 @@
 # pipeline.py
-
 from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 import itertools
 import multiprocessing as mp
+from queue import Queue
 from typing import Any
 from typing import TypeVar
 from typing import overload
@@ -15,6 +17,7 @@ from laygo.transformers.threaded import ThreadedTransformer
 from laygo.transformers.transformer import Transformer
 
 T = TypeVar("T")
+U = TypeVar("U")
 PipelineFunction = Callable[[T], Any]
 
 
@@ -147,53 +150,61 @@ class Pipeline[T]:
 
     return self  # type: ignore
 
-  def branch(self, branches: dict[str, Transformer[T, Any]]) -> dict[str, list[Any]]:
-    """Forks the pipeline, sending all data to multiple branches and returning the last chunk.
-
-    This is a **terminal operation** that implements a fan-out pattern.
-    It consumes the pipeline's data, sends the **entire dataset** to each
-    branch transformer, and continuously **overwrites** a shared context value
-    with the latest processed chunk. The final result is a dictionary
-    containing only the **last processed chunk** for each branch.
-
-    Args:
-        branches: A dictionary where keys are branch names (str) and values
-                  are `Transformer` instances.
-
-    Returns:
-        A dictionary where keys are the branch names and values are lists
-        of items from the last processed chunk for that branch.
-    """
+  def branch(
+    self,
+    branches: dict[str, Transformer[T, Any]],
+    batch_size: int = 1000,
+    max_batch_buffer: int = 1,
+  ) -> dict[str, list[Any]]:
+    """Forks the pipeline into multiple branches for concurrent, parallel processing."""
     if not branches:
       self.consume()
       return {}
 
-    # 1. Build a single "fan-out" transformer by chaining taps.
-    fan_out_transformer = Transformer[T, T]()
+    source_iterator = self.processed_data
+    branch_items = list(branches.items())
+    num_branches = len(branch_items)
+    final_results: dict[str, list[Any]] = {}
 
-    for name, branch_transformer in branches.items():
-      # Create a "collector" that runs the user's logic and then
-      # overwrites the context with its latest chunk.
-      collector = Transformer.from_transformer(branch_transformer)
+    queues = [Queue(maxsize=max_batch_buffer) for _ in range(num_branches)]
 
-      # This is the side-effect operation that overwrites the context.
-      def overwrite_context_with_chunk(chunk: list[Any], ctx: PipelineContext, name=name) -> list[Any]:
-        # This is an atomic assignment for manager dicts; no lock needed.
-        ctx[name] = chunk
-        # Return the chunk unmodified to satisfy the _pipe interface.
-        return chunk
+    def producer() -> None:
+      """Reads from the source and distributes batches to ALL branch queues."""
+      # Use itertools.batched for clean and efficient batch creation.
+      for batch_tuple in itertools.batched(source_iterator, batch_size):
+        # The batch is a tuple; convert to a list for consumers.
+        batch_list = list(batch_tuple)
+        for q in queues:
+          q.put(batch_list)
 
-      # Add this as the final step in the collector's pipeline.
-      collector._pipe(overwrite_context_with_chunk)
+      # Signal to all consumers that the stream is finished.
+      for q in queues:
+        q.put(None)
 
-      # Tap the main transformer. The collector will run as a side-effect.
-      fan_out_transformer.tap(collector)
+    def consumer(transformer: Transformer, queue: Queue) -> list[Any]:
+      """Consumes batches from a queue and runs them through a transformer."""
 
-    # 2. Apply the fan-out transformer and consume the entire pipeline.
-    self.apply(fan_out_transformer).consume()
+      def stream_from_queue() -> Iterator[T]:
+        while (batch := queue.get()) is not None:
+          yield from batch
 
-    # 3. Collect the final state from the context.
-    final_results = {name: self.ctx.get(name, []) for name in branches}
+      result_iterator = transformer(stream_from_queue(), self.ctx)  # type: ignore
+      return list(result_iterator)
+
+    with ThreadPoolExecutor(max_workers=num_branches + 1) as executor:
+      executor.submit(producer)
+
+      future_to_name = {
+        executor.submit(consumer, transformer, queues[i]): name for i, (name, transformer) in enumerate(branch_items)
+      }
+
+      for future in as_completed(future_to_name):
+        name = future_to_name[future]
+        try:
+          final_results[name] = future.result()
+        except Exception as e:
+          print(f"Branch '{name}' raised an exception: {e}")
+          final_results[name] = []
 
     return final_results
 
