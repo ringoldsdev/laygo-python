@@ -13,7 +13,6 @@ from typing import overload
 
 from laygo.helpers import PipelineContext
 from laygo.helpers import is_context_aware
-from laygo.transformers.threaded import ThreadedTransformer
 from laygo.transformers.transformer import Transformer
 
 T = TypeVar("T")
@@ -208,16 +207,47 @@ class Pipeline[T]:
 
     return final_results
 
-  def buffer(self, size: int) -> "Pipeline[T]":
-    """Buffer the pipeline using threaded processing.
+  def buffer(self, size: int, batch_size: int = 1000) -> "Pipeline[T]":
+    """Inserts a buffer in the pipeline to allow downstream processing to read ahead.
+
+    This creates a background thread that reads from the upstream data source
+    and fills a queue, decoupling the upstream and downstream stages.
 
     Args:
-        size: The number of worker threads to use for buffering.
+        size: The number of **batches** to hold in the buffer.
+        batch_size: The number of items to accumulate per batch.
 
     Returns:
         The pipeline instance for method chaining.
     """
-    self.apply(ThreadedTransformer(max_workers=size))
+    source_iterator = self.processed_data
+
+    def _buffered_stream() -> Iterator[T]:
+      queue = Queue(maxsize=size)
+      # We only need one background thread for the producer.
+      executor = ThreadPoolExecutor(max_workers=1)
+
+      def _producer() -> None:
+        """The producer reads from the source and fills the queue."""
+        try:
+          for batch_tuple in itertools.batched(source_iterator, batch_size):
+            queue.put(list(batch_tuple))
+        finally:
+          # Always put the sentinel value to signal the end of the stream.
+          queue.put(None)
+
+      # Start the producer in the background thread.
+      executor.submit(_producer)
+
+      try:
+        # The main thread becomes the consumer.
+        while (batch := queue.get()) is not None:
+          yield from batch
+      finally:
+        # Ensure the background thread is cleaned up.
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    self.processed_data = _buffered_stream()
     return self
 
   def __iter__(self) -> Iterator[T]:
