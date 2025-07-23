@@ -19,7 +19,7 @@
 
 **Laygo** is the lightweight Python library for data pipelines that I wish existed when I first started. It's designed from the ground up to make data engineering simpler, cleaner, and more intuitive, letting you build resilient, in-memory data workflows with an elegant, fluent API.
 
-It's built to grow with you. Scale seamlessly from a single local script to thousands of concurrent serverless functions with minimal operational overhead. Process data in parallel, branch into multiple analysis paths, and handle errors gracefully - all with the same clean, chainable syntax. 
+It's built to grow with you. Scale seamlessly from a single local script to thousands of concurrent serverless functions with minimal operational overhead.
 
 **Key Features:**
 
