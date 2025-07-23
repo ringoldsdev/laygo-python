@@ -60,6 +60,20 @@ def build_chunk_generator[T](chunk_size: int) -> Callable[[Iterable[T]], Iterato
   return chunk_generator
 
 
+def passthrough_chunks[T](data: Iterable[list[T]]) -> Iterator[list[T]]:
+  """A chunk generator that yields the entire input as a single chunk.
+
+  This is useful for transformers that do not require chunking.
+
+  Args:
+      data: The input data to process.
+
+  Returns:
+      An iterator yielding the entire input as a single chunk.
+  """
+  yield from iter(data)
+
+
 class Transformer[In, Out]:
   """Define and compose data transformations by passing context explicitly.
 

@@ -14,6 +14,7 @@ from typing import overload
 from laygo.helpers import PipelineContext
 from laygo.helpers import is_context_aware
 from laygo.transformers.transformer import Transformer
+from laygo.transformers.transformer import passthrough_chunks
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -154,6 +155,7 @@ class Pipeline[T]:
     branches: dict[str, Transformer[T, Any]],
     batch_size: int = 1000,
     max_batch_buffer: int = 1,
+    use_queue_chunks: bool = True,
   ) -> dict[str, list[Any]]:
     """Forks the pipeline into multiple branches for concurrent, parallel processing."""
     if not branches:
@@ -185,7 +187,10 @@ class Pipeline[T]:
 
       def stream_from_queue() -> Iterator[T]:
         while (batch := queue.get()) is not None:
-          yield from batch
+          yield batch
+
+      if use_queue_chunks:
+        transformer = transformer.set_chunker(passthrough_chunks)
 
       result_iterator = transformer(stream_from_queue(), self.ctx)  # type: ignore
       return list(result_iterator)
