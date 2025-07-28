@@ -1,11 +1,11 @@
 from collections.abc import Callable
 
-from laygo.helpers import PipelineContext
+from laygo.context.types import IContextManager
 
-ChunkErrorHandler = Callable[[list, Exception, PipelineContext], None]
+ChunkErrorHandler = Callable[[list, Exception, IContextManager], None]
 
 
-def raise_error(chunk: list, error: Exception, context: PipelineContext) -> None:
+def raise_error(chunk: list, error: Exception, context: IContextManager) -> None:
   """Handler that always re-raises the error, stopping execution.
 
   This is a default error handler that provides fail-fast behavior by
@@ -47,7 +47,7 @@ class ErrorHandler:
     self._handlers.insert(0, handler)
     return self
 
-  def handle(self, chunk: list, error: Exception, context: PipelineContext) -> None:
+  def handle(self, chunk: list, error: Exception, context: IContextManager) -> None:
     """Execute all handlers in the chain.
 
     Handlers are executed in reverse order of addition. Execution stops

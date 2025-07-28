@@ -3,9 +3,14 @@ import inspect
 from typing import Any
 from typing import TypeGuard
 
+from laygo.context.types import IContextManager
+
 
 class PipelineContext(dict[str, Any]):
   """Generic, untyped context available to all pipeline operations.
+
+  DEPRECATED: This class is deprecated and will be removed in a future version.
+  Use IContextManager implementations (SimpleContextManager, etc.) instead.
 
   A dictionary-based context that can store arbitrary data shared across
   pipeline operations. This allows passing state and configuration between
@@ -16,14 +21,14 @@ class PipelineContext(dict[str, Any]):
 
 
 # Define the specific callables for clarity
-ContextAwareCallable = Callable[[Any, PipelineContext], Any]
-ContextAwareReduceCallable = Callable[[Any, Any, PipelineContext], Any]
+ContextAwareCallable = Callable[[Any, IContextManager], Any]
+ContextAwareReduceCallable = Callable[[Any, Any, IContextManager], Any]
 
 
 def is_context_aware(func: Callable[..., Any]) -> TypeGuard[ContextAwareCallable]:
   """Check if a function is context-aware by inspecting its signature.
 
-  A context-aware function accepts a PipelineContext as its second parameter,
+  A context-aware function accepts an IContextManager as its second parameter,
   allowing it to access shared state during pipeline execution.
 
   Args:
@@ -40,7 +45,7 @@ def is_context_aware_reduce(func: Callable[..., Any]) -> TypeGuard[ContextAwareR
   """Check if a reduce function is context-aware by inspecting its signature.
 
   A context-aware reduce function accepts an accumulator, current value,
-  and PipelineContext as its three parameters.
+  and IContextManager as its three parameters.
 
   Args:
       func: The reduce function to inspect for context awareness.

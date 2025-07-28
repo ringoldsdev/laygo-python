@@ -16,8 +16,9 @@ from typing import overload
 
 import requests
 
+from laygo.context import IContextManager
+from laygo.context import SimpleContextManager
 from laygo.errors import ErrorHandler
-from laygo.helpers import PipelineContext
 from laygo.transformers.transformer import ChunkErrorHandler
 from laygo.transformers.transformer import PipelineFunction
 from laygo.transformers.transformer import Transformer
@@ -85,6 +86,8 @@ class HTTPTransformer(Transformer[In, Out]):
     self.max_workers = max_workers
     self.session = requests.Session()
     self._worker_url: str | None = None
+    # HTTP transformers always use a simple context manager to avoid serialization issues
+    self._default_context = SimpleContextManager()
 
   def _finalize_config(self) -> None:
     """Determine the final worker URL, generating one if needed.
@@ -107,7 +110,7 @@ class HTTPTransformer(Transformer[In, Out]):
     self.endpoint = path.lstrip("/")
     self._worker_url = f"{self.base_url}/{self.endpoint}"
 
-  def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
+  def __call__(self, data: Iterable[In], context: IContextManager | None = None) -> Iterator[Out]:
     """Execute distributed processing on the data (CLIENT-SIDE).
 
     This method is called by the Pipeline to start distributed processing.
@@ -115,11 +118,14 @@ class HTTPTransformer(Transformer[In, Out]):
 
     Args:
         data: The input data to process.
-        context: Optional pipeline context (currently not used in HTTP mode).
+        context: Optional pipeline context. HTTP transformers always use their
+                internal SimpleContextManager regardless of the provided context.
 
     Returns:
         An iterator over the processed data.
     """
+    run_context = context or self._default_context
+
     self._finalize_config()
 
     def process_chunk(chunk: list) -> list:
@@ -143,18 +149,24 @@ class HTTPTransformer(Transformer[In, Out]):
         print(f"Error calling worker {self._worker_url}: {e}")
         return []
 
-    with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-      chunk_iterator = self._chunk_generator(data)
-      futures = {executor.submit(process_chunk, chunk) for chunk in itertools.islice(chunk_iterator, self.max_workers)}
-      while futures:
-        done, futures = wait(futures, return_when=FIRST_COMPLETED)
-        for future in done:
-          yield from future.result()
-          try:
-            new_chunk = next(chunk_iterator)
-            futures.add(executor.submit(process_chunk, new_chunk))
-          except StopIteration:
-            continue
+    try:
+      with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        chunk_iterator = self._chunk_generator(data)
+        futures = {
+          executor.submit(process_chunk, chunk) for chunk in itertools.islice(chunk_iterator, self.max_workers)
+        }
+        while futures:
+          done, futures = wait(futures, return_when=FIRST_COMPLETED)
+          for future in done:
+            yield from future.result()
+            try:
+              new_chunk = next(chunk_iterator)
+              futures.add(executor.submit(process_chunk, new_chunk))
+            except StopIteration:
+              continue
+    finally:
+      # Always clean up our context since we always use the default one
+      run_context.shutdown()
 
   def get_route(self):
     """Get the route configuration for registering this transformer as a worker.
@@ -167,7 +179,7 @@ class HTTPTransformer(Transformer[In, Out]):
     """
     self._finalize_config()
 
-    def worker_view_func(chunk: list, context: PipelineContext):
+    def worker_view_func(chunk: list, context: IContextManager):
       """The actual worker logic for this transformer.
 
       Args:
@@ -226,6 +238,6 @@ class HTTPTransformer(Transformer[In, Out]):
     super().catch(sub_pipeline_builder, on_error)
     return self  # type: ignore
 
-  def short_circuit(self, function: Callable[[PipelineContext], bool | None]) -> "HTTPTransformer[In, Out]":
+  def short_circuit(self, function: Callable[[IContextManager], bool | None]) -> "HTTPTransformer[In, Out]":
     super().short_circuit(function)
     return self

@@ -12,20 +12,21 @@ from typing import Self
 from typing import Union
 from typing import overload
 
+from laygo.context import IContextManager
+from laygo.context import SimpleContextManager
 from laygo.errors import ErrorHandler
-from laygo.helpers import PipelineContext
 from laygo.helpers import is_context_aware
 from laygo.helpers import is_context_aware_reduce
 
 DEFAULT_CHUNK_SIZE = 1000
 
 
-type PipelineFunction[Out, T] = Callable[[Out], T] | Callable[[Out, PipelineContext], T]
-type PipelineReduceFunction[U, Out] = Callable[[U, Out], U] | Callable[[U, Out, PipelineContext], U]
+type PipelineFunction[Out, T] = Callable[[Out], T] | Callable[[Out, IContextManager], T]
+type PipelineReduceFunction[U, Out] = Callable[[U, Out], U] | Callable[[U, Out, IContextManager], U]
 
 # The internal transformer function signature is changed to explicitly accept a context.
-type InternalTransformer[In, Out] = Callable[[list[In], PipelineContext], list[Out]]
-type ChunkErrorHandler[In, U] = Callable[[list[In], Exception, PipelineContext], list[U]]
+type InternalTransformer[In, Out] = Callable[[list[In], IContextManager], list[Out]]
+type ChunkErrorHandler[In, U] = Callable[[list[In], Exception, IContextManager], list[U]]
 
 
 def createTransformer[T](_type_hint: type[T], chunk_size: int = DEFAULT_CHUNK_SIZE) -> "Transformer[T, T]":
@@ -96,11 +97,12 @@ class Transformer[In, Out]:
         transformer: Optional existing transformer logic to use.
     """
     self.chunk_size = chunk_size
-    self.context: PipelineContext = PipelineContext()
     # The default transformer now accepts and ignores a context argument.
     self.transformer: InternalTransformer[In, Out] = transformer or (lambda chunk, ctx: chunk)  # type: ignore
     self.error_handler = ErrorHandler()
     self._chunk_generator = build_chunk_generator(chunk_size) if chunk_size else lambda x: iter([list(x)])
+    # Rule 2: Transformers create a simple context manager by default for standalone use.
+    self._default_context = SimpleContextManager()
 
   @classmethod
   def from_transformer[T, U](
@@ -151,7 +153,7 @@ class Transformer[In, Out]:
         self.error_handler.on_error(handler)  # type: ignore
     return self
 
-  def _pipe[U](self, operation: Callable[[list[Out], PipelineContext], list[U]]) -> "Transformer[In, U]":
+  def _pipe[U](self, operation: Callable[[list[Out], IContextManager], list[U]]) -> "Transformer[In, U]":
     """Compose the current transformer with a new context-aware operation.
 
     Args:
@@ -175,9 +177,11 @@ class Transformer[In, Out]:
         A new transformer with the mapping operation applied.
     """
     if is_context_aware(function):
-      return self._pipe(lambda chunk, ctx: [function(x, ctx) for x in chunk])
+      context_aware_func: Callable[[Out, IContextManager], U] = function  # type: ignore
+      return self._pipe(lambda chunk, ctx: [context_aware_func(x, ctx) for x in chunk])
 
-    return self._pipe(lambda chunk, _ctx: [function(x) for x in chunk])  # type: ignore
+    non_context_func: Callable[[Out], U] = function  # type: ignore
+    return self._pipe(lambda chunk, _ctx: [non_context_func(x) for x in chunk])
 
   def filter(self, predicate: PipelineFunction[Out, bool]) -> "Transformer[In, Out]":
     """Filter elements, passing context explicitly to the predicate function.
@@ -190,9 +194,11 @@ class Transformer[In, Out]:
         A transformer with the filtering operation applied.
     """
     if is_context_aware(predicate):
-      return self._pipe(lambda chunk, ctx: [x for x in chunk if predicate(x, ctx)])
+      context_aware_predicate: Callable[[Out, IContextManager], bool] = predicate  # type: ignore
+      return self._pipe(lambda chunk, ctx: [x for x in chunk if context_aware_predicate(x, ctx)])
 
-    return self._pipe(lambda chunk, _ctx: [x for x in chunk if predicate(x)])  # type: ignore
+    non_context_predicate: Callable[[Out], bool] = predicate  # type: ignore
+    return self._pipe(lambda chunk, _ctx: [x for x in chunk if non_context_predicate(x)])
 
   @overload
   def flatten[T](self: "Transformer[In, list[T]]") -> "Transformer[In, T]": ...
@@ -246,7 +252,7 @@ class Transformer[In, Out]:
       case Transformer() as tapped_transformer:
         tapped_func = tapped_transformer.transformer
 
-        def operation(chunk: list[Out], ctx: PipelineContext) -> list[Out]:
+        def operation(chunk: list[Out], ctx: IContextManager) -> list[Out]:
           # Execute the tapped transformer's logic on the chunk for side-effects.
           _ = tapped_func(chunk, ctx)
           # Return the original chunk to continue the main pipeline.
@@ -257,9 +263,11 @@ class Transformer[In, Out]:
       # Case 2: The argument is a callable function
       case function if callable(function):
         if is_context_aware(function):
-          return self._pipe(lambda chunk, ctx: [x for x in chunk if function(x, ctx) or True])
+          context_aware_func: Callable[[Out, IContextManager], Any] = function  # type: ignore
+          return self._pipe(lambda chunk, ctx: [x for x in chunk if context_aware_func(x, ctx) or True])
 
-        return self._pipe(lambda chunk, _ctx: [x for x in chunk if function(x) or True])  # type: ignore
+        non_context_func: Callable[[Out], Any] = function  # type: ignore
+        return self._pipe(lambda chunk, _ctx: [x for x in chunk if non_context_func(x) or True])
 
       # Default case for robustness
       case _:
@@ -279,7 +287,7 @@ class Transformer[In, Out]:
   def loop(
     self,
     loop_transformer: "Transformer[Out, Out]",
-    condition: Callable[[list[Out]], bool] | Callable[[list[Out], PipelineContext], bool],
+    condition: Callable[[list[Out]], bool] | Callable[[list[Out], IContextManager], bool],
     max_iterations: int | None = None,
   ) -> "Transformer[In, Out]":
     """
@@ -295,7 +303,7 @@ class Transformer[In, Out]:
                           input and output types must match the current pipeline's
                           output type (`Transformer[Out, Out]`).
         condition: A function that takes the current chunk (and optionally
-                   the `PipelineContext`) and returns `True` to continue the
+                   the `IContextManager`) and returns `True` to continue the
                    loop, or `False` to stop.
         max_iterations: An optional integer to limit the number of repetitions
                         and prevent infinite loops.
@@ -306,7 +314,7 @@ class Transformer[In, Out]:
     looped_func = loop_transformer.transformer
     condition_is_context_aware = is_context_aware(condition)
 
-    def operation(chunk: list[Out], ctx: PipelineContext) -> list[Out]:
+    def operation(chunk: list[Out], ctx: IContextManager) -> list[Out]:
       condition_checker = (  # noqa: E731
         lambda current_chunk: condition(current_chunk, ctx) if condition_is_context_aware else condition(current_chunk)  # type: ignore
       )
@@ -324,7 +332,7 @@ class Transformer[In, Out]:
 
     return self._pipe(operation)
 
-  def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
+  def __call__(self, data: Iterable[In], context: IContextManager | None = None) -> Iterator[Out]:
     """Execute the transformer on a data source.
 
     It uses the provided `context` by reference. If none is provided, it uses
@@ -332,17 +340,21 @@ class Transformer[In, Out]:
 
     Args:
         data: The input data to process.
-        context: Optional pipeline context to use during processing.
+        context: Optional context (IContextManager or dict) to use during processing.
 
     Returns:
         An iterator over the transformed data.
     """
-    # Use the provided context by reference, or default to the instance's context.
-    run_context = context or self.context
+    # Use the provided context by reference, or default to a simple context.
+    run_context = context or self._default_context
 
-    for chunk in self._chunk_generator(data):
-      # The context is now passed explicitly through the transformer chain.
-      yield from self.transformer(chunk, run_context)
+    try:
+      for chunk in self._chunk_generator(data):
+        # The context is now passed explicitly through the transformer chain.
+        yield from self.transformer(chunk, run_context)
+    finally:
+      if run_context is self._default_context:
+        self._default_context.shutdown()
 
   @overload
   def reduce[U](
@@ -362,7 +374,7 @@ class Transformer[In, Out]:
     initial: U,
     *,
     per_chunk: Literal[False] = False,
-  ) -> Callable[[Iterable[In], PipelineContext | None], Iterator[U]]:
+  ) -> Callable[[Iterable[In], IContextManager | None], Iterator[U]]:
     """Reduces the entire dataset to a single value (terminal operation)."""
     ...
 
@@ -372,7 +384,7 @@ class Transformer[In, Out]:
     initial: U,
     *,
     per_chunk: bool = False,
-  ) -> Union["Transformer[In, U]", Callable[[Iterable[In], PipelineContext | None], Iterator[U]]]:  # type: ignore
+  ) -> Union["Transformer[In, U]", Callable[[Iterable[In], IContextManager | None], Iterator[U]]]:  # type: ignore
     """Reduces elements to a single value, either per-chunk or for the entire dataset."""
     if per_chunk:
       # --- Efficient "per-chunk" logic (chainable) ---
@@ -380,43 +392,49 @@ class Transformer[In, Out]:
       # The context-awareness check is now hoisted and executed only ONCE.
       if is_context_aware_reduce(function):
         # We define a specialized operation for the context-aware case.
-        def reduce_chunk_operation(chunk: list[Out], ctx: PipelineContext) -> list[U]:
+        context_aware_reduce_func: Callable[[U, Out, IContextManager], U] = function  # type: ignore
+
+        def reduce_chunk_operation(chunk: list[Out], ctx: IContextManager) -> list[U]:
           if not chunk:
             return []
           # No check happens here; we know the function needs the context.
-          wrapper = lambda acc, val: function(acc, val, ctx)  # noqa: E731, W291
+          wrapper = lambda acc, val: context_aware_reduce_func(acc, val, ctx)  # noqa: E731
           return [reduce(wrapper, chunk, initial)]
       else:
         # We define a specialized, simpler operation for the non-aware case.
-        def reduce_chunk_operation(chunk: list[Out], ctx: PipelineContext) -> list[U]:
+        non_context_reduce_func: Callable[[U, Out], U] = function  # type: ignore
+
+        def reduce_chunk_operation(chunk: list[Out], ctx: IContextManager) -> list[U]:
           if not chunk:
             return []
           # No check happens here; the function is called directly.
-          return [reduce(function, chunk, initial)]  # type: ignore
+          return [reduce(non_context_reduce_func, chunk, initial)]
 
       return self._pipe(reduce_chunk_operation)
 
     # --- "Entire dataset" logic with `match` (terminal) ---
     match is_context_aware_reduce(function):
       case True:
+        context_aware_reduce_func: Callable[[U, Out, IContextManager], U] = function  # type: ignore
 
-        def _reduce_with_context(data: Iterable[In], context: PipelineContext | None = None) -> Iterator[U]:
-          run_context = context or self.context
+        def _reduce_with_context(data: Iterable[In], context: IContextManager | None = None) -> Iterator[U]:
+          run_context = context or self._default_context
           data_iterator = self(data, run_context)
 
           def function_wrapper(acc, val):
-            return function(acc, val, run_context)  # type: ignore
+            return context_aware_reduce_func(acc, val, run_context)
 
           yield reduce(function_wrapper, data_iterator, initial)
 
         return _reduce_with_context
 
       case False:
+        non_context_reduce_func: Callable[[U, Out], U] = function  # type: ignore
 
-        def _reduce(data: Iterable[In], context: PipelineContext | None = None) -> Iterator[U]:
-          run_context = context or self.context
+        def _reduce(data: Iterable[In], context: IContextManager | None = None) -> Iterator[U]:
+          run_context = context or self._default_context
           data_iterator = self(data, run_context)
-          yield reduce(function, data_iterator, initial)  # type: ignore
+          yield reduce(non_context_reduce_func, data_iterator, initial)
 
         return _reduce
 
@@ -447,7 +465,7 @@ class Transformer[In, Out]:
     sub_pipeline = sub_pipeline_builder(temp_transformer)
     sub_transformer_func = sub_pipeline.transformer
 
-    def operation(chunk: list[Out], ctx: PipelineContext) -> list[U]:
+    def operation(chunk: list[Out], ctx: IContextManager) -> list[U]:
       try:
         # Attempt to process the whole chunk with the sub-pipeline
         return sub_transformer_func(chunk, ctx)
@@ -458,7 +476,7 @@ class Transformer[In, Out]:
 
     return self._pipe(operation)  # type: ignore
 
-  def short_circuit(self, function: Callable[[PipelineContext], bool | None]) -> "Transformer[In, Out]":
+  def short_circuit(self, function: Callable[[IContextManager], bool | None]) -> "Transformer[In, Out]":
     """Execute a function on the context before processing the next step for a chunk.
 
     This can be used for short-circuiting by raising an exception based on the
@@ -467,7 +485,7 @@ class Transformer[In, Out]:
     operation in the chain.
 
     Args:
-        function: A callable that accepts the `PipelineContext` as its sole
+        function: A callable that accepts the context (IContextManager or dict) as its sole
                   argument. If it returns True, the pipeline is stopped with
                   an exception.
 
@@ -479,7 +497,7 @@ class Transformer[In, Out]:
                      condition has been met.
     """
 
-    def operation(chunk: list[Out], ctx: PipelineContext) -> list[Out]:
+    def operation(chunk: list[Out], ctx: IContextManager) -> list[Out]:
       """The internal operation that wraps the user's function."""
       # Execute the user's function with the current context.
       if function(ctx):

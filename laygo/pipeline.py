@@ -5,13 +5,13 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
 import itertools
-import multiprocessing as mp
 from queue import Queue
 from typing import Any
 from typing import TypeVar
 from typing import overload
 
-from laygo.helpers import PipelineContext
+from laygo.context import IContextManager
+from laygo.context import SimpleContextManager
 from laygo.helpers import is_context_aware
 from laygo.transformers.transformer import Transformer
 from laygo.transformers.transformer import passthrough_chunks
@@ -44,12 +44,14 @@ class Pipeline[T]:
       pipeline effectively single-use unless the data source is re-initialized.
   """
 
-  def __init__(self, *data: Iterable[T]) -> None:
+  def __init__(self, *data: Iterable[T], context_manager: IContextManager | None = None) -> None:
     """Initialize a pipeline with one or more data sources.
 
     Args:
         *data: One or more iterable data sources. If multiple sources are
                provided, they will be chained together.
+        context_manager: An instance of a class that implements IContextManager.
+                         If None, a SimpleContextManager is used by default.
 
     Raises:
         ValueError: If no data sources are provided.
@@ -59,25 +61,16 @@ class Pipeline[T]:
     self.data_source: Iterable[T] = itertools.chain.from_iterable(data) if len(data) > 1 else data[0]
     self.processed_data: Iterator = iter(self.data_source)
 
-    # Always create a shared context with multiprocessing manager
-    self._manager = mp.Manager()
-    self.ctx = self._manager.dict()
-    # Add a shared lock to the context for safe concurrent updates
-    self.ctx["lock"] = self._manager.Lock()
-
-    # Store reference to original context for final synchronization
-    self._original_context_ref: PipelineContext | None = None
+    # Rule 1: Pipeline creates a simple context manager by default.
+    self.context_manager = context_manager or SimpleContextManager()
 
   def __del__(self) -> None:
-    """Clean up the multiprocessing manager when the pipeline is destroyed."""
-    try:
-      self._sync_context_back()
-      self._manager.shutdown()
-    except Exception:
-      pass
+    """Clean up the context manager when the pipeline is destroyed."""
+    if hasattr(self, "context_manager"):
+      self.context_manager.shutdown()
 
-  def context(self, ctx: PipelineContext) -> "Pipeline[T]":
-    """Update the pipeline context and store a reference to the original context.
+  def context(self, ctx: dict[str, Any]) -> "Pipeline[T]":
+    """Update the pipeline's context manager with values from a dictionary.
 
     The provided context will be used during pipeline execution and any
     modifications made by transformers will be synchronized back to the
@@ -96,10 +89,7 @@ class Pipeline[T]:
         automatically synchronized back to the original context object
         when the pipeline is destroyed or processing completes.
     """
-    # Store reference to the original context
-    self._original_context_ref = ctx
-    # Copy the context data to the pipeline's shared context
-    self.ctx.update(ctx)
+    self.context_manager.update(ctx)
     return self
 
   def _sync_context_back(self) -> None:
@@ -108,12 +98,9 @@ class Pipeline[T]:
     This is called after processing is complete to update the original
     context with any changes made during pipeline execution.
     """
-    if self._original_context_ref is not None:
-      # Copy the final context state back to the original context reference
-      final_context_state = dict(self.ctx)
-      final_context_state.pop("lock", None)  # Remove non-serializable lock
-      self._original_context_ref.clear()
-      self._original_context_ref.update(final_context_state)
+    # This method is kept for backward compatibility but is no longer needed
+    # since we use the context manager directly
+    pass
 
   def transform[U](self, t: Callable[[Transformer[T, T]], Transformer[T, U]]) -> "Pipeline[U]":
     """Apply a transformation using a lambda function.
@@ -146,13 +133,13 @@ class Pipeline[T]:
   def apply[U](self, transformer: Callable[[Iterable[T]], Iterator[U]]) -> "Pipeline[U]": ...
 
   @overload
-  def apply[U](self, transformer: Callable[[Iterable[T], PipelineContext], Iterator[U]]) -> "Pipeline[U]": ...
+  def apply[U](self, transformer: Callable[[Iterable[T], IContextManager], Iterator[U]]) -> "Pipeline[U]": ...
 
   def apply[U](
     self,
     transformer: Transformer[T, U]
     | Callable[[Iterable[T]], Iterator[U]]
-    | Callable[[Iterable[T], PipelineContext], Iterator[U]],
+    | Callable[[Iterable[T], IContextManager], Iterator[U]],
   ) -> "Pipeline[U]":
     """Apply a transformer to the current data source.
 
@@ -181,10 +168,11 @@ class Pipeline[T]:
     """
     match transformer:
       case Transformer():
-        self.processed_data = transformer(self.processed_data, self.ctx)  # type: ignore
+        # Pass the pipeline's context manager to the transformer
+        self.processed_data = transformer(self.processed_data, self.context_manager)  # type: ignore
       case _ if callable(transformer):
         if is_context_aware(transformer):
-          self.processed_data = transformer(self.processed_data, self.ctx)  # type: ignore
+          self.processed_data = transformer(self.processed_data, self.context_manager)  # type: ignore
         else:
           self.processed_data = transformer(self.processed_data)  # type: ignore
       case _:
@@ -256,12 +244,12 @@ class Pipeline[T]:
 
       def stream_from_queue() -> Iterator[T]:
         while (batch := queue.get()) is not None:
-          yield batch
+          yield from batch
 
       if use_queue_chunks:
         transformer = transformer.set_chunker(passthrough_chunks)
 
-      result_iterator = transformer(stream_from_queue(), self.ctx)  # type: ignore
+      result_iterator = transformer(stream_from_queue(), self.context_manager)  # type: ignore
       return list(result_iterator)
 
     with ThreadPoolExecutor(max_workers=num_branches + 1) as executor:
