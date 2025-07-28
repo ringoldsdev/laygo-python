@@ -100,9 +100,10 @@ class TestThreadedTransformerContextSupport:
     context = ParallelContextManager({"items": 0})
 
     def safe_increment(x: int, ctx: IContextManager) -> int:
-      current_items = ctx["items"]
-      time.sleep(0.001)  # Increase chance of race condition
-      ctx["items"] = current_items + 1
+      with ctx:
+        # Simulate a race condition
+        time.sleep(0.001)  # Increase chance of race condition
+        ctx["items"] = ctx["items"] + 1
       return x * 2
 
     transformer = ThreadedTransformer[int, int](max_workers=4, chunk_size=1)

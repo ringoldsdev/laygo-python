@@ -134,13 +134,13 @@ class TestPipelineParallelTransformerIntegration:
     parallel_transformer = parallel_transformer.map(safe_increment_and_transform)
 
     data = [1, 2, 3, 4, 5]
-    result, _ = Pipeline(data).context(context).apply(parallel_transformer).to_list()
+    result, processed_context = Pipeline(data).context(context).apply(parallel_transformer).to_list()
 
     # Verify transformation results
     assert sorted(result) == [2, 4, 6, 8, 10]
     # Verify context was safely modified
-    assert context["processed_count"] == len(data)
-    assert context["sum_total"] == sum(data)
+    assert processed_context["processed_count"] == len(data)
+    assert processed_context["sum_total"] == sum(data)
 
   def test_pipeline_accesses_modified_context(self):
     """Test that pipeline can access context data modified by parallel transformer."""

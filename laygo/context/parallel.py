@@ -7,6 +7,7 @@ from collections.abc import Callable
 from collections.abc import Iterator
 import multiprocessing as mp
 from multiprocessing.managers import DictProxy
+import threading
 from threading import Lock
 from typing import Any
 from typing import TypeVar
@@ -64,23 +65,24 @@ class ParallelContextManager(IContextManager):
       self._shared_dict = self._manager.dict(initial_context or {})
       self._lock = self._manager.Lock()
 
-    self._is_locked = False
+    # Thread-local storage for lock state to handle concurrent access
+    self._local = threading.local()
 
   def _lock_context(self) -> None:
     """Acquire the lock for this context manager."""
-    if not self._is_locked:
+    if not getattr(self._local, "is_locked", False):
       self._lock.acquire()
-      self._is_locked = True
+      self._local.is_locked = True
 
   def _unlock_context(self) -> None:
     """Release the lock for this context manager."""
-    if self._is_locked:
+    if getattr(self._local, "is_locked", False):
       self._lock.release()
-      self._is_locked = False
+      self._local.is_locked = False
 
   def _execute_locked(self, operation: Callable[[], R]) -> R:
     """A private helper to execute an operation within a lock."""
-    if not self._is_locked:
+    if not getattr(self._local, "is_locked", False):
       self._lock_context()
       try:
         return operation()
