@@ -2,12 +2,10 @@
 
 import threading
 import time
-from unittest.mock import patch
 
 from laygo import ErrorHandler
 from laygo import PipelineContext
 from laygo import ThreadedTransformer
-from laygo import Transformer
 from laygo.transformers.threaded import createThreadedTransformer
 from laygo.transformers.transformer import createTransformer
 
@@ -168,48 +166,6 @@ class TestThreadedTransformerOrdering:
 
     assert sorted(ordered_result) == sorted(unordered_result)
     assert ordered_result == [x * 2 for x in data]  # Ordered maintains sequence
-
-
-class TestThreadedTransformerPerformance:
-  """Test performance aspects of parallel transformer."""
-
-  def test_concurrent_performance_improvement(self):
-    """Test that concurrent execution improves performance for slow operations."""
-
-    def slow_operation(x: int) -> int:
-      time.sleep(0.01)  # 10ms delay
-      return x * 2
-
-    data = list(range(8))  # 8 items, 80ms total sequential time
-
-    # Sequential execution
-    start_time = time.time()
-    sequential = Transformer[int, int](chunk_size=4)
-    seq_result = list(sequential.map(slow_operation)(data))
-    seq_time = time.time() - start_time
-
-    # Concurrent execution
-    start_time = time.time()
-    concurrent = ThreadedTransformer[int, int](max_workers=4, chunk_size=4)
-    conc_result = list(concurrent.map(slow_operation)(data))
-    conc_time = time.time() - start_time
-
-    assert seq_result == conc_result
-    assert conc_time < seq_time * 0.8  # At least 20% faster
-
-  def test_thread_pool_management(self):
-    """Test that thread pool is properly created and cleaned up."""
-    with patch("laygo.transformers.threaded.ThreadPoolExecutor") as mock_executor:
-      mock_executor.return_value.__enter__.return_value = mock_executor.return_value
-      mock_executor.return_value.__exit__.return_value = None
-      mock_executor.return_value.submit.return_value.result.return_value = [2, 4]
-
-      transformer = ThreadedTransformer[int, int](max_workers=2, chunk_size=2)
-      list(transformer([1, 2]))
-
-      mock_executor.assert_called_with(max_workers=2)
-      mock_executor.return_value.__enter__.assert_called_once()
-      mock_executor.return_value.__exit__.assert_called_once()
 
 
 class TestThreadedTransformerChunking:

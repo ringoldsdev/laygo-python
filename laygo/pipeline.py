@@ -11,7 +11,7 @@ from typing import TypeVar
 from typing import overload
 
 from laygo.context import IContextManager
-from laygo.context import SimpleContextManager
+from laygo.context.parallel import ParallelContextManager
 from laygo.helpers import is_context_aware
 from laygo.transformers.transformer import Transformer
 from laygo.transformers.transformer import passthrough_chunks
@@ -51,7 +51,7 @@ class Pipeline[T]:
         *data: One or more iterable data sources. If multiple sources are
                provided, they will be chained together.
         context_manager: An instance of a class that implements IContextManager.
-                         If None, a SimpleContextManager is used by default.
+                         If None, a ParallelContextManager is used by default.
 
     Raises:
         ValueError: If no data sources are provided.
@@ -62,7 +62,7 @@ class Pipeline[T]:
     self.processed_data: Iterator = iter(self.data_source)
 
     # Rule 1: Pipeline creates a simple context manager by default.
-    self.context_manager = context_manager or SimpleContextManager()
+    self.context_manager = context_manager or ParallelContextManager()
 
   def __del__(self) -> None:
     """Clean up the context manager when the pipeline is destroyed."""
@@ -244,7 +244,7 @@ class Pipeline[T]:
 
       def stream_from_queue() -> Iterator[T]:
         while (batch := queue.get()) is not None:
-          yield from batch
+          yield batch
 
       if use_queue_chunks:
         transformer = transformer.set_chunker(passthrough_chunks)
