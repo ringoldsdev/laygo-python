@@ -478,5 +478,5 @@ class TestPipelineBranch:
     assert result["branch_b"] == [3, 6, 9]
 
     # Context values should reflect the actual chunk sizes processed
-    assert pipeline.ctx.get("branch_a_processed") == 3
-    assert pipeline.ctx.get("branch_b_processed") == 3
+    assert pipeline.context_manager.get("branch_a_processed") == 3
+    assert pipeline.context_manager.get("branch_b_processed") == 3

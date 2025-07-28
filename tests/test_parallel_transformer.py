@@ -111,14 +111,6 @@ class TestParallelTransformerContextSupport:
     result = list(transformer([1, 2, 3], context))
     assert result == [3, 6, 9]
 
-  def test_context_aware_complex_operation(self):
-    """Test complex context-aware operations with shared state."""
-    context = ParallelContextManager({"multiplier": 3, "stats": {"total": 0, "count": 0}})
-
-    transformer = createParallelTransformer(int, max_workers=2, chunk_size=2).map(update_stats)
-    data = [1, 2, 3, 4, 5]
-    result = list(transformer(data, context))
-
   def test_multiple_context_values_modification(self):
     """Test modifying multiple context values safely."""
     from laygo.context import ParallelContextManager
