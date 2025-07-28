@@ -13,19 +13,19 @@ class TestPipelineTransformerBasics:
   def test_basic_pipeline_transformer_integration(self):
     """Test basic pipeline and transformer integration."""
     transformer = createTransformer(int).map(lambda x: x * 2).filter(lambda x: x > 5)
-    result = Pipeline([1, 2, 3, 4, 5]).apply(transformer).to_list()
+    result, _ = Pipeline([1, 2, 3, 4, 5]).apply(transformer).to_list()
     assert result == [6, 8, 10]
 
   def test_pipeline_context_sharing(self):
     """Test that context is properly shared between pipeline and transformers."""
     context = {"multiplier": 3, "threshold": 5}
     transformer = Transformer().map(lambda x, ctx: x * ctx["multiplier"]).filter(lambda x, ctx: x > ctx["threshold"])
-    result = Pipeline([1, 2, 3]).context(context).apply(transformer).to_list()
+    result, _ = Pipeline([1, 2, 3]).context(context).apply(transformer).to_list()
     assert result == [6, 9]
 
   def test_pipeline_transform_shorthand(self):
     """Test pipeline transform shorthand method."""
-    result = (
+    result, _ = (
       Pipeline([1, 2, 3, 4, 5])
       .transform(lambda t: t.map(lambda x: x * 3))
       .transform(lambda t: t.filter(lambda x: x > 6))
@@ -47,7 +47,7 @@ class TestPipelineDataProcessing:
     ]
 
     # Extract names of people over 28 with salary > 55000
-    result = (
+    result, _ = (
       Pipeline(raw_data)
       .transform(lambda t: t.filter(lambda x: x["age"] > 28 and x["salary"] > 55000))
       .transform(lambda t: t.map(lambda x: x["name"]))
@@ -71,7 +71,7 @@ class TestPipelineDataProcessing:
       except (ValueError, TypeError):
         return None
 
-    result = (
+    result, _ = (
       Pipeline(raw_data)
       .transform(lambda t: t.map(validate_and_convert))
       .transform(lambda t: t.filter(lambda x: x is not None))
@@ -123,7 +123,7 @@ class TestPipelineParallelTransformerIntegration:
     parallel_transformer = ParallelTransformer[int, int](max_workers=2, chunk_size=2)
     parallel_transformer = parallel_transformer.map(lambda x: x * 2).filter(lambda x: x > 5)
 
-    result = Pipeline([1, 2, 3, 4, 5]).apply(parallel_transformer).to_list()
+    result, _ = Pipeline([1, 2, 3, 4, 5]).apply(parallel_transformer).to_list()
     assert sorted(result) == [6, 8, 10]
 
   def test_parallel_transformer_with_context_modification(self):
@@ -134,7 +134,7 @@ class TestPipelineParallelTransformerIntegration:
     parallel_transformer = parallel_transformer.map(safe_increment_and_transform)
 
     data = [1, 2, 3, 4, 5]
-    result = Pipeline(data).context(context).apply(parallel_transformer).to_list()
+    result, _ = Pipeline(data).context(context).apply(parallel_transformer).to_list()
 
     # Verify transformation results
     assert sorted(result) == [2, 4, 6, 8, 10]
@@ -151,7 +151,7 @@ class TestPipelineParallelTransformerIntegration:
 
     data = [1, 2, 3, 4, 5, 6]
     pipeline = Pipeline(data).context(context)
-    result = pipeline.apply(parallel_transformer).to_list()
+    result, _ = pipeline.apply(parallel_transformer).to_list()
 
     # Verify results and context access
     assert sorted(result) == [3, 6, 9, 12, 15, 18]
@@ -172,7 +172,7 @@ class TestPipelineParallelTransformerIntegration:
 
     # Chain parallel transformers in pipeline
     pipeline = Pipeline(data).context(context)
-    result = (
+    result, _ = (
       pipeline.apply(stage1)  # [2, 4, 6, 8, 10]
       .apply(stage2)  # [12, 14, 16, 18, 20]
       .to_list()
@@ -217,16 +217,16 @@ class TestPipelineParallelTransformerIntegration:
     pipeline2 = Pipeline(data).context(create_context())
 
     # Process with both pipelines
-    result1 = pipeline1.apply(parallel_transformer).to_list()
-    result2 = pipeline2.apply(parallel_transformer).to_list()
+    result1, pipeline1_context = pipeline1.apply(parallel_transformer).to_list()
+    result2, pipeline2_context = pipeline2.apply(parallel_transformer).to_list()
 
     # Both should have same transformation results
     assert result1 == [2, 4, 6]
     assert result2 == [2, 4, 6]
 
     # But contexts should be isolated
-    assert pipeline1.context_manager["count"] == 3
-    assert pipeline2.context_manager["count"] == 3
+    assert pipeline1_context["count"] == 3
+    assert pipeline2_context["count"] == 3
 
     # Verify they are different context objects
-    assert pipeline1.context_manager is not pipeline2.context_manager
+    assert pipeline1_context is not pipeline2_context

@@ -89,6 +89,7 @@ class Pipeline[T]:
         automatically synchronized back to the original context object
         when the pipeline is destroyed or processing completes.
     """
+    self._user_context = ctx
     self.context_manager.update(ctx)
     return self
 
@@ -180,95 +181,6 @@ class Pipeline[T]:
 
     return self  # type: ignore
 
-  def branch(
-    self,
-    branches: dict[str, Transformer[T, Any]],
-    batch_size: int = 1000,
-    max_batch_buffer: int = 1,
-    use_queue_chunks: bool = True,
-  ) -> dict[str, list[Any]]:
-    """Forks the pipeline into multiple branches for concurrent, parallel processing.
-
-    This is a **terminal operation** that implements a fan-out pattern where
-    the entire dataset is copied to each branch for independent processing.
-    Each branch processes the complete dataset concurrently using separate
-    transformers, and results are collected and returned in a dictionary.
-
-    Args:
-        branches: A dictionary where keys are branch names (str) and values
-                  are `Transformer` instances of any subtype.
-        batch_size: The number of items to batch together when sending data
-                    to branches. Larger batches can improve throughput but
-                    use more memory. Defaults to 1000.
-        max_batch_buffer: The maximum number of batches to buffer for each
-                          branch queue. Controls memory usage and creates
-                          backpressure. Defaults to 1.
-        use_queue_chunks: Whether to use passthrough chunking for the
-                          transformers. When True, batches are processed
-                          as chunks. Defaults to True.
-
-    Returns:
-        A dictionary where keys are the branch names and values are lists
-        of all items processed by that branch's transformer.
-
-    Note:
-        This operation consumes the pipeline's iterator, making subsequent
-        operations on the same pipeline return empty results.
-    """
-    if not branches:
-      self.consume()
-      return {}
-
-    source_iterator = self.processed_data
-    branch_items = list(branches.items())
-    num_branches = len(branch_items)
-    final_results: dict[str, list[Any]] = {}
-
-    queues = [Queue(maxsize=max_batch_buffer) for _ in range(num_branches)]
-
-    def producer() -> None:
-      """Reads from the source and distributes batches to ALL branch queues."""
-      # Use itertools.batched for clean and efficient batch creation.
-      for batch_tuple in itertools.batched(source_iterator, batch_size):
-        # The batch is a tuple; convert to a list for consumers.
-        batch_list = list(batch_tuple)
-        for q in queues:
-          q.put(batch_list)
-
-      # Signal to all consumers that the stream is finished.
-      for q in queues:
-        q.put(None)
-
-    def consumer(transformer: Transformer, queue: Queue) -> list[Any]:
-      """Consumes batches from a queue and runs them through a transformer."""
-
-      def stream_from_queue() -> Iterator[T]:
-        while (batch := queue.get()) is not None:
-          yield batch
-
-      if use_queue_chunks:
-        transformer = transformer.set_chunker(passthrough_chunks)
-
-      result_iterator = transformer(stream_from_queue(), self.context_manager)  # type: ignore
-      return list(result_iterator)
-
-    with ThreadPoolExecutor(max_workers=num_branches + 1) as executor:
-      executor.submit(producer)
-
-      future_to_name = {
-        executor.submit(consumer, transformer, queues[i]): name for i, (name, transformer) in enumerate(branch_items)
-      }
-
-      for future in as_completed(future_to_name):
-        name = future_to_name[future]
-        try:
-          final_results[name] = future.result()
-        except Exception as e:
-          print(f"Branch '{name}' raised an exception: {e}")
-          final_results[name] = []
-
-    return final_results
-
   def buffer(self, size: int, batch_size: int = 1000) -> "Pipeline[T]":
     """Inserts a buffer in the pipeline to allow downstream processing to read ahead.
 
@@ -328,7 +240,7 @@ class Pipeline[T]:
     """
     yield from self.processed_data
 
-  def to_list(self) -> list[T]:
+  def to_list(self) -> tuple[list[T], dict[str, Any]]:
     """Execute the pipeline and return the results as a list.
 
     This is a terminal operation that consumes the pipeline's iterator
@@ -341,9 +253,9 @@ class Pipeline[T]:
         This operation consumes the pipeline's iterator, making subsequent
         operations on the same pipeline return empty results.
     """
-    return list(self.processed_data)
+    return list(self.processed_data), self.context_manager.to_dict()
 
-  def each(self, function: PipelineFunction[T]) -> None:
+  def each(self, function: PipelineFunction[T]) -> tuple[None, dict[str, Any]]:
     """Apply a function to each element (terminal operation).
 
     This is a terminal operation that processes each element for side effects
@@ -360,7 +272,9 @@ class Pipeline[T]:
     for item in self.processed_data:
       function(item)
 
-  def first(self, n: int = 1) -> list[T]:
+    return None, self.context_manager.to_dict()
+
+  def first(self, n: int = 1) -> tuple[list[T], dict[str, Any]]:
     """Get the first n elements of the pipeline (terminal operation).
 
     This is a terminal operation that consumes up to n elements from the
@@ -381,9 +295,9 @@ class Pipeline[T]:
         operations will continue from where this operation left off.
     """
     assert n >= 1, "n must be at least 1"
-    return list(itertools.islice(self.processed_data, n))
+    return list(itertools.islice(self.processed_data, n)), self.context_manager.to_dict()
 
-  def consume(self) -> None:
+  def consume(self) -> tuple[None, dict[str, Any]]:
     """Consume the pipeline without returning results (terminal operation).
 
     This is a terminal operation that processes all elements in the pipeline
@@ -396,3 +310,94 @@ class Pipeline[T]:
     """
     for _ in self.processed_data:
       pass
+
+    return None, self.context_manager.to_dict()
+
+  def branch(
+    self,
+    branches: dict[str, Transformer[T, Any]],
+    batch_size: int = 1000,
+    max_batch_buffer: int = 1,
+    use_queue_chunks: bool = True,
+  ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
+    """Forks the pipeline into multiple branches for concurrent, parallel processing.
+
+    This is a **terminal operation** that implements a fan-out pattern where
+    the entire dataset is copied to each branch for independent processing.
+    Each branch processes the complete dataset concurrently using separate
+    transformers, and results are collected and returned in a dictionary.
+
+    Args:
+        branches: A dictionary where keys are branch names (str) and values
+                  are `Transformer` instances of any subtype.
+        batch_size: The number of items to batch together when sending data
+                    to branches. Larger batches can improve throughput but
+                    use more memory. Defaults to 1000.
+        max_batch_buffer: The maximum number of batches to buffer for each
+                          branch queue. Controls memory usage and creates
+                          backpressure. Defaults to 1.
+        use_queue_chunks: Whether to use passthrough chunking for the
+                          transformers. When True, batches are processed
+                          as chunks. Defaults to True.
+
+    Returns:
+        A dictionary where keys are the branch names and values are lists
+        of all items processed by that branch's transformer.
+
+    Note:
+        This operation consumes the pipeline's iterator, making subsequent
+        operations on the same pipeline return empty results.
+    """
+    if not branches:
+      self.consume()
+      return {}, {}
+
+    source_iterator = self.processed_data
+    branch_items = list(branches.items())
+    num_branches = len(branch_items)
+    final_results: dict[str, list[Any]] = {}
+
+    queues = [Queue(maxsize=max_batch_buffer) for _ in range(num_branches)]
+
+    def producer() -> None:
+      """Reads from the source and distributes batches to ALL branch queues."""
+      # Use itertools.batched for clean and efficient batch creation.
+      for batch_tuple in itertools.batched(source_iterator, batch_size):
+        # The batch is a tuple; convert to a list for consumers.
+        batch_list = list(batch_tuple)
+        for q in queues:
+          q.put(batch_list)
+
+      # Signal to all consumers that the stream is finished.
+      for q in queues:
+        q.put(None)
+
+    def consumer(transformer: Transformer, queue: Queue) -> list[Any]:
+      """Consumes batches from a queue and runs them through a transformer."""
+
+      def stream_from_queue() -> Iterator[T]:
+        while (batch := queue.get()) is not None:
+          yield batch
+
+      if use_queue_chunks:
+        transformer = transformer.set_chunker(passthrough_chunks)
+
+      result_iterator = transformer(stream_from_queue(), self.context_manager)  # type: ignore
+      return list(result_iterator)
+
+    with ThreadPoolExecutor(max_workers=num_branches + 1) as executor:
+      executor.submit(producer)
+
+      future_to_name = {
+        executor.submit(consumer, transformer, queues[i]): name for i, (name, transformer) in enumerate(branch_items)
+      }
+
+      for future in as_completed(future_to_name):
+        name = future_to_name[future]
+        try:
+          final_results[name] = future.result()
+        except Exception as e:
+          print(f"Branch '{name}' raised an exception: {e}")
+          final_results[name] = []
+
+    return final_results, self.context_manager.to_dict()

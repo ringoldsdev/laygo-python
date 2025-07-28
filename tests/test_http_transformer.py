@@ -4,7 +4,7 @@ import requests_mock
 
 from laygo import HTTPTransformer
 from laygo import Pipeline
-from laygo import PipelineContext
+from laygo.context.simple import SimpleContextManager
 
 
 class TestHTTPTransformer:
@@ -42,7 +42,7 @@ class TestHTTPTransformer:
       input_chunk = request.json()
       # Call the actual view function logic obtained from get_route()
       # We pass None for the context as it's not used in this simple case.
-      output_chunk = worker_view_func(chunk=input_chunk, context=PipelineContext())
+      output_chunk = worker_view_func(chunk=input_chunk, context=SimpleContextManager())
       return output_chunk
 
     # Use requests_mock context manager
@@ -52,7 +52,7 @@ class TestHTTPTransformer:
       # 5. Run the standard Pipeline with the configured transformer
       initial_data = list(range(10))  # [0, 1, 2, ..., 9]
       pipeline = Pipeline(initial_data).apply(http_transformer)
-      result = pipeline.to_list()
+      result, _ = pipeline.to_list()
 
       # 6. Assert the final result
       expected_result = [12, 14, 16, 18]

@@ -87,3 +87,18 @@ class IContextManager(MutableMapping[str, Any], ABC):
         exc_tb: The traceback object, if an exception was raised.
     """
     self.shutdown()
+
+  def to_dict(self) -> dict[str, Any]:
+    """
+    Returns a copy of the entire shared context as a standard
+    Python dictionary.
+
+    This operation is performed atomically using a lock to ensure a
+    consistent snapshot of the context is returned.
+
+    Returns:
+        A standard dict containing a copy of the shared context.
+    """
+    # The dict() constructor iterates over the proxy and copies its items.
+    # The lock ensures this happens atomically without race conditions.
+    raise NotImplementedError

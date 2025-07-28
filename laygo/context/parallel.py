@@ -131,3 +131,6 @@ class ParallelContextManager(IContextManager):
 
   def __len__(self) -> int:
     return self._execute_locked(lambda: len(self._shared_dict))
+
+  def to_dict(self) -> dict[str, Any]:
+    return self._execute_locked(lambda: dict(self._shared_dict))

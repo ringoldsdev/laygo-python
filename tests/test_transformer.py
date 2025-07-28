@@ -3,8 +3,8 @@
 import pytest
 
 from laygo import ErrorHandler
-from laygo import PipelineContext
 from laygo import Transformer
+from laygo.context.simple import SimpleContextManager
 from laygo.transformers.transformer import createTransformer
 
 
@@ -107,14 +107,14 @@ class TestTransformerContextSupport:
 
   def test_map_with_context(self):
     """Test map with context-aware function."""
-    context = PipelineContext({"multiplier": 3})
+    context = SimpleContextManager({"multiplier": 3})
     transformer = Transformer().map(lambda x, ctx: x * ctx["multiplier"])
     result = list(transformer([1, 2, 3], context))
     assert result == [3, 6, 9]
 
   def test_filter_with_context(self):
     """Test filter with context-aware function."""
-    context = PipelineContext({"threshold": 3})
+    context = SimpleContextManager({"threshold": 3})
     transformer = Transformer().filter(lambda x, ctx: x > ctx["threshold"])
     result = list(transformer([1, 2, 3, 4, 5], context))
     assert result == [4, 5]
@@ -122,7 +122,7 @@ class TestTransformerContextSupport:
   def test_tap_with_context(self):
     """Test tap with context-aware function."""
     side_effects = []
-    context = PipelineContext({"prefix": "item:"})
+    context = SimpleContextManager({"prefix": "item:"})
     transformer = Transformer().tap(lambda x, ctx: side_effects.append(f"{ctx['prefix']}{x}"))
     result = list(transformer([1, 2, 3], context))
 
@@ -159,7 +159,7 @@ class TestTransformerContextSupport:
   def test_tap_with_transformer_and_context(self):
     """Test tap with a transformer that uses context."""
     side_effects = []
-    context = PipelineContext({"multiplier": 5, "log_prefix": "processed:"})
+    context = SimpleContextManager({"multiplier": 5, "log_prefix": "processed:"})
 
     # Create a context-aware side-effect transformer
     side_effect_transformer = (
@@ -186,7 +186,7 @@ class TestTransformerContextSupport:
   def test_loop_with_context(self):
     """Test loop with context-aware condition and transformer."""
     side_effects = []
-    context = PipelineContext({"target_sum": 15, "increment": 2})
+    context = SimpleContextManager({"target_sum": 15, "increment": 2})
 
     # Create a context-aware loop transformer that uses context increment
     loop_transformer = (
@@ -213,7 +213,7 @@ class TestTransformerContextSupport:
 
   def test_loop_with_context_and_side_effects(self):
     """Test loop with context-aware condition that reads context data."""
-    context = PipelineContext({"max_value": 20, "increment": 3})
+    context = SimpleContextManager({"max_value": 20, "increment": 3})
 
     # Simple loop transformer that uses context increment
     loop_transformer = createTransformer(int).map(lambda x, ctx: x + ctx["increment"])
@@ -270,7 +270,7 @@ class TestTransformerReduceOperations:
 
   def test_reduce_with_context(self):
     """Test reduce with context-aware function."""
-    context = PipelineContext({"multiplier": 2})
+    context = SimpleContextManager({"multiplier": 2})
     transformer = Transformer()
     reducer = transformer.reduce(lambda acc, x, ctx: acc + (x * ctx["multiplier"]), initial=0)
     result = list(reducer([1, 2, 3], context))
@@ -292,7 +292,7 @@ class TestTransformerReduceOperations:
 
   def test_reduce_per_chunk_with_context(self):
     """Test reduce with per_chunk=True and context-aware function."""
-    context = PipelineContext({"multiplier": 2})
+    context = SimpleContextManager({"multiplier": 2})
     transformer = createTransformer(int, chunk_size=2).reduce(
       lambda acc, x, ctx: acc + (x * ctx["multiplier"]), initial=0, per_chunk=True
     )

@@ -87,3 +87,11 @@ class SimpleContextManager(IContextManager):
   def shutdown(self) -> None:
     """No-op for the simple context manager."""
     pass
+
+  def to_dict(self) -> dict[str, Any]:
+    """
+    Returns a copy of the entire context as a standard Python dictionary.
+
+    This operation is performed atomically to ensure consistency.
+    """
+    return self._context

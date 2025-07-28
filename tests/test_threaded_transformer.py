@@ -1,11 +1,11 @@
 """Tests for the ThreadedTransformer class."""
 
-import threading
 import time
 
 from laygo import ErrorHandler
-from laygo import PipelineContext
 from laygo import ThreadedTransformer
+from laygo.context.parallel import ParallelContextManager
+from laygo.context.types import IContextManager
 from laygo.transformers.threaded import createThreadedTransformer
 from laygo.transformers.transformer import createTransformer
 
@@ -89,7 +89,7 @@ class TestThreadedTransformerContextSupport:
 
   def test_map_with_context(self):
     """Test map with context-aware function in concurrent execution."""
-    context = PipelineContext({"multiplier": 3})
+    context = ParallelContextManager({"multiplier": 3})
     transformer = ThreadedTransformer[int, int](max_workers=2, chunk_size=2)
     transformer = transformer.map(lambda x, ctx: x * ctx["multiplier"])
     result = list(transformer([1, 2, 3], context))
@@ -97,13 +97,12 @@ class TestThreadedTransformerContextSupport:
 
   def test_context_modification_with_locking(self):
     """Test safe context modification with locking in concurrent execution."""
-    context = PipelineContext({"items": 0, "_lock": threading.Lock()})
+    context = ParallelContextManager({"items": 0})
 
-    def safe_increment(x: int, ctx: PipelineContext) -> int:
-      with ctx["_lock"]:
-        current_items = ctx["items"]
-        time.sleep(0.001)  # Increase chance of race condition
-        ctx["items"] = current_items + 1
+    def safe_increment(x: int, ctx: IContextManager) -> int:
+      current_items = ctx["items"]
+      time.sleep(0.001)  # Increase chance of race condition
+      ctx["items"] = current_items + 1
       return x * 2
 
     transformer = ThreadedTransformer[int, int](max_workers=4, chunk_size=1)
@@ -117,10 +116,10 @@ class TestThreadedTransformerContextSupport:
 
   def test_multiple_context_values_modification(self):
     """Test modifying multiple context values safely."""
-    context = PipelineContext({"total_sum": 0, "item_count": 0, "max_value": 0, "_lock": threading.Lock()})
+    context = ParallelContextManager({"total_sum": 0, "item_count": 0, "max_value": 0})
 
-    def update_stats(x: int, ctx: PipelineContext) -> int:
-      with ctx["_lock"]:
+    def update_stats(x: int, ctx: IContextManager) -> int:
+      with ctx:
         ctx["total_sum"] += x
         ctx["item_count"] += 1
         ctx["max_value"] = max(ctx["max_value"], x)
