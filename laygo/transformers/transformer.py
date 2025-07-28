@@ -345,8 +345,9 @@ class Transformer[In, Out]:
     Returns:
         An iterator over the transformed data.
     """
+
     # Use the provided context by reference, or default to a simple context.
-    run_context = context or self._default_context
+    run_context = context if context is not None else self._default_context
 
     try:
       for chunk in self._chunk_generator(data):

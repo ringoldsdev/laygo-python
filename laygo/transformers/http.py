@@ -124,7 +124,7 @@ class HTTPTransformer(Transformer[In, Out]):
     Returns:
         An iterator over the processed data.
     """
-    run_context = context or self._default_context
+    run_context = self._default_context
 
     self._finalize_config()
 

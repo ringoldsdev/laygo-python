@@ -12,9 +12,9 @@ from typing import overload
 
 from laygo.context import IContextManager
 from laygo.context.parallel import ParallelContextManager
+from laygo.context.types import IContextHandle
 from laygo.helpers import is_context_aware
 from laygo.transformers.transformer import Transformer
-from laygo.transformers.transformer import passthrough_chunks
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -62,7 +62,7 @@ class Pipeline[T]:
     self.processed_data: Iterator = iter(self.data_source)
 
     # Rule 1: Pipeline creates a simple context manager by default.
-    self.context_manager = context_manager or ParallelContextManager()
+    self.context_manager = context_manager if context_manager is not None else ParallelContextManager()
 
   def __del__(self) -> None:
     """Clean up the context manager when the pipeline is destroyed."""
@@ -92,16 +92,6 @@ class Pipeline[T]:
     self._user_context = ctx
     self.context_manager.update(ctx)
     return self
-
-  def _sync_context_back(self) -> None:
-    """Synchronize the final pipeline context back to the original context reference.
-
-    This is called after processing is complete to update the original
-    context with any changes made during pipeline execution.
-    """
-    # This method is kept for backward compatibility but is no longer needed
-    # since we use the context manager directly
-    pass
 
   def transform[U](self, t: Callable[[Transformer[T, T]], Transformer[T, U]]) -> "Pipeline[U]":
     """Apply a transformation using a lambda function.
@@ -170,7 +160,7 @@ class Pipeline[T]:
     match transformer:
       case Transformer():
         # Pass the pipeline's context manager to the transformer
-        self.processed_data = transformer(self.processed_data, self.context_manager)  # type: ignore
+        self.processed_data = transformer(self.processed_data, context=self.context_manager)  # type: ignore
       case _ if callable(transformer):
         if is_context_aware(transformer):
           self.processed_data = transformer(self.processed_data, self.context_manager)  # type: ignore
@@ -318,14 +308,13 @@ class Pipeline[T]:
     branches: dict[str, Transformer[T, Any]],
     batch_size: int = 1000,
     max_batch_buffer: int = 1,
-    use_queue_chunks: bool = True,
   ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
     """Forks the pipeline into multiple branches for concurrent, parallel processing.
 
     This is a **terminal operation** that implements a fan-out pattern where
     the entire dataset is copied to each branch for independent processing.
-    Each branch processes the complete dataset concurrently using separate
-    transformers, and results are collected and returned in a dictionary.
+    Each branch gets its own Pipeline instance with isolated context management,
+    and results are collected and returned in a dictionary.
 
     Args:
         branches: A dictionary where keys are branch names (str) and values
@@ -336,13 +325,12 @@ class Pipeline[T]:
         max_batch_buffer: The maximum number of batches to buffer for each
                           branch queue. Controls memory usage and creates
                           backpressure. Defaults to 1.
-        use_queue_chunks: Whether to use passthrough chunking for the
-                          transformers. When True, batches are processed
-                          as chunks. Defaults to True.
 
     Returns:
-        A dictionary where keys are the branch names and values are lists
-        of all items processed by that branch's transformer.
+        A tuple containing:
+        - A dictionary where keys are the branch names and values are lists
+          of all items processed by that branch's transformer.
+        - A merged dictionary of all context values from all branches.
 
     Note:
         This operation consumes the pipeline's iterator, making subsequent
@@ -372,32 +360,41 @@ class Pipeline[T]:
       for q in queues:
         q.put(None)
 
-    def consumer(transformer: Transformer, queue: Queue) -> list[Any]:
-      """Consumes batches from a queue and runs them through a transformer."""
+    def consumer(
+      transformer: Transformer, queue: Queue, context_handle: IContextHandle
+    ) -> tuple[list[Any], dict[str, Any]]:
+      """Consumes batches from a queue and processes them through a dedicated pipeline."""
 
       def stream_from_queue() -> Iterator[T]:
         while (batch := queue.get()) is not None:
-          yield batch
+          yield from batch
 
-      if use_queue_chunks:
-        transformer = transformer.set_chunker(passthrough_chunks)
+      # Create a new pipeline for this branch but share the parent's context manager
+      # This ensures all branches share the same context
+      branch_pipeline = Pipeline(stream_from_queue(), context_manager=context_handle.create_proxy())  # type: ignore
 
-      result_iterator = transformer(stream_from_queue(), self.context_manager)  # type: ignore
-      return list(result_iterator)
+      # Apply the transformer to the branch pipeline and get results
+      result_list, branch_context = branch_pipeline.apply(transformer).to_list()
+
+      return result_list, branch_context
 
     with ThreadPoolExecutor(max_workers=num_branches + 1) as executor:
       executor.submit(producer)
 
       future_to_name = {
-        executor.submit(consumer, transformer, queues[i]): name for i, (name, transformer) in enumerate(branch_items)
+        executor.submit(consumer, transformer, queues[i], self.context_manager.get_handle()): name
+        for i, (name, transformer) in enumerate(branch_items)
       }
 
+      # Collect results - context is shared through the same context manager
       for future in as_completed(future_to_name):
         name = future_to_name[future]
         try:
-          final_results[name] = future.result()
-        except Exception as e:
-          print(f"Branch '{name}' raised an exception: {e}")
+          result_list, branch_context = future.result()
+          final_results[name] = result_list
+        except Exception:
           final_results[name] = []
 
-    return final_results, self.context_manager.to_dict()
+    # After all threads complete, get the final context state
+    final_context = self.context_manager.to_dict()
+    return final_results, final_context

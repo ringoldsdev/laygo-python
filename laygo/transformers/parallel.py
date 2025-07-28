@@ -124,7 +124,7 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
 
   def __call__(self, data: Iterable[In], context: IContextManager | None = None) -> Iterator[Out]:
     """Execute the transformer by distributing chunks to a process pool."""
-    run_context = context or self._default_context
+    run_context = context if context is not None else self._default_context
 
     # Get the picklable handle from the context manager.
     context_handle = run_context.get_handle()

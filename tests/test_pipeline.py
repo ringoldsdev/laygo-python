@@ -498,5 +498,5 @@ class TestPipelineBranch:
     assert result["branch_b"] == [3, 6, 9]
 
     # Context values should reflect the actual chunk sizes processed
-    assert context["branch_a_processed"] == 3
     assert context["branch_b_processed"] == 3
+    assert context["branch_a_processed"] == 3
