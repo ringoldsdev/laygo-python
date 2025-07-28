@@ -41,7 +41,8 @@ class IContextManager(MutableMapping[str, Any], ABC):
   This class defines the contract for all context managers, ensuring they
   provide a dictionary-like interface for state manipulation by inheriting
   from `collections.abc.MutableMapping`. It also includes methods for
-  distribution (get_handle) and resource management (shutdown).
+  distribution (get_handle), resource management (shutdown), and context
+  management (__enter__, __exit__).
   """
 
   @abstractmethod
@@ -66,3 +67,23 @@ class IContextManager(MutableMapping[str, Any], ABC):
     background processes, or any other cleanup required by the manager.
     """
     raise NotImplementedError
+
+  def __enter__(self) -> "IContextManager":
+    """
+    Enters the runtime context related to this object.
+
+    Returns:
+        The context manager instance itself.
+    """
+    return self
+
+  def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> None:
+    """
+    Exits the runtime context and performs cleanup.
+
+    Args:
+        exc_type: The exception type, if an exception was raised.
+        exc_val: The exception instance, if an exception was raised.
+        exc_tb: The traceback object, if an exception was raised.
+    """
+    self.shutdown()
