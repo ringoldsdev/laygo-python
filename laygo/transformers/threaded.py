@@ -119,7 +119,7 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
     Returns:
         An iterator over the transformed data.
     """
-    run_context = context if context is not None else self._default_context
+    run_context = context or self._default_context
 
     # Since threads share memory, we can pass the context manager directly.
     # No handle/proxy mechanism is needed, but the locking inside
