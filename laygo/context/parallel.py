@@ -117,7 +117,7 @@ class ParallelContextManager(IContextManager):
     self._unlock_context()
 
   def __getitem__(self, key: str) -> Any:
-    return self._execute_locked(lambda: self._shared_dict[key])
+    return self._shared_dict[key]
 
   def __setitem__(self, key: str, value: Any) -> None:
     self._execute_locked(lambda: self._shared_dict.__setitem__(key, value))
