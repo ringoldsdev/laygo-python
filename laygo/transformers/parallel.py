@@ -226,7 +226,7 @@ class ParallelTransformer[In, Out](Transformer[In, Out]):
   def catch[U](
     self,
     sub_pipeline_builder: Callable[[Transformer[Out, Out]], Transformer[Out, U]],
-    on_error: ChunkErrorHandler[Out, U] | None = None,
+    on_error: ChunkErrorHandler[Out, None] | None = None,
   ) -> "ParallelTransformer[In, U]":
     super().catch(sub_pipeline_builder, on_error)
     return self  # type: ignore
