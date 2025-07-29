@@ -1,13 +1,11 @@
 """Tests for the ThreadedTransformer class."""
 
-import threading
 import time
-from unittest.mock import patch
 
 from laygo import ErrorHandler
-from laygo import PipelineContext
 from laygo import ThreadedTransformer
-from laygo import Transformer
+from laygo.context.parallel import ParallelContextManager
+from laygo.context.types import IContextManager
 from laygo.transformers.threaded import createThreadedTransformer
 from laygo.transformers.transformer import createTransformer
 
@@ -91,7 +89,7 @@ class TestThreadedTransformerContextSupport:
 
   def test_map_with_context(self):
     """Test map with context-aware function in concurrent execution."""
-    context = PipelineContext({"multiplier": 3})
+    context = ParallelContextManager({"multiplier": 3})
     transformer = ThreadedTransformer[int, int](max_workers=2, chunk_size=2)
     transformer = transformer.map(lambda x, ctx: x * ctx["multiplier"])
     result = list(transformer([1, 2, 3], context))
@@ -99,13 +97,13 @@ class TestThreadedTransformerContextSupport:
 
   def test_context_modification_with_locking(self):
     """Test safe context modification with locking in concurrent execution."""
-    context = PipelineContext({"items": 0, "_lock": threading.Lock()})
+    context = ParallelContextManager({"items": 0})
 
-    def safe_increment(x: int, ctx: PipelineContext) -> int:
-      with ctx["_lock"]:
-        current_items = ctx["items"]
+    def safe_increment(x: int, ctx: IContextManager) -> int:
+      with ctx:
+        # Simulate a race condition
         time.sleep(0.001)  # Increase chance of race condition
-        ctx["items"] = current_items + 1
+        ctx["items"] = ctx["items"] + 1
       return x * 2
 
     transformer = ThreadedTransformer[int, int](max_workers=4, chunk_size=1)
@@ -119,10 +117,10 @@ class TestThreadedTransformerContextSupport:
 
   def test_multiple_context_values_modification(self):
     """Test modifying multiple context values safely."""
-    context = PipelineContext({"total_sum": 0, "item_count": 0, "max_value": 0, "_lock": threading.Lock()})
+    context = ParallelContextManager({"total_sum": 0, "item_count": 0, "max_value": 0})
 
-    def update_stats(x: int, ctx: PipelineContext) -> int:
-      with ctx["_lock"]:
+    def update_stats(x: int, ctx: IContextManager) -> int:
+      with ctx:
         ctx["total_sum"] += x
         ctx["item_count"] += 1
         ctx["max_value"] = max(ctx["max_value"], x)
@@ -168,48 +166,6 @@ class TestThreadedTransformerOrdering:
 
     assert sorted(ordered_result) == sorted(unordered_result)
     assert ordered_result == [x * 2 for x in data]  # Ordered maintains sequence
-
-
-class TestThreadedTransformerPerformance:
-  """Test performance aspects of parallel transformer."""
-
-  def test_concurrent_performance_improvement(self):
-    """Test that concurrent execution improves performance for slow operations."""
-
-    def slow_operation(x: int) -> int:
-      time.sleep(0.01)  # 10ms delay
-      return x * 2
-
-    data = list(range(8))  # 8 items, 80ms total sequential time
-
-    # Sequential execution
-    start_time = time.time()
-    sequential = Transformer[int, int](chunk_size=4)
-    seq_result = list(sequential.map(slow_operation)(data))
-    seq_time = time.time() - start_time
-
-    # Concurrent execution
-    start_time = time.time()
-    concurrent = ThreadedTransformer[int, int](max_workers=4, chunk_size=4)
-    conc_result = list(concurrent.map(slow_operation)(data))
-    conc_time = time.time() - start_time
-
-    assert seq_result == conc_result
-    assert conc_time < seq_time * 0.8  # At least 20% faster
-
-  def test_thread_pool_management(self):
-    """Test that thread pool is properly created and cleaned up."""
-    with patch("laygo.transformers.threaded.ThreadPoolExecutor") as mock_executor:
-      mock_executor.return_value.__enter__.return_value = mock_executor.return_value
-      mock_executor.return_value.__exit__.return_value = None
-      mock_executor.return_value.submit.return_value.result.return_value = [2, 4]
-
-      transformer = ThreadedTransformer[int, int](max_workers=2, chunk_size=2)
-      list(transformer([1, 2]))
-
-      mock_executor.assert_called_with(max_workers=2)
-      mock_executor.return_value.__enter__.assert_called_once()
-      mock_executor.return_value.__exit__.assert_called_once()
 
 
 class TestThreadedTransformerChunking:

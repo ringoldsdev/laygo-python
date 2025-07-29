@@ -4,7 +4,6 @@ from collections import deque
 from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Iterator
-from collections.abc import MutableMapping
 from concurrent.futures import FIRST_COMPLETED
 from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
@@ -12,25 +11,18 @@ from concurrent.futures import wait
 import copy
 from functools import partial
 import itertools
-from multiprocessing.managers import DictProxy
-import threading
 from typing import Any
 from typing import Union
 from typing import overload
 
+from laygo.context import IContextManager
+from laygo.context import ParallelContextManager
 from laygo.errors import ErrorHandler
-from laygo.helpers import PipelineContext
 from laygo.transformers.transformer import DEFAULT_CHUNK_SIZE
 from laygo.transformers.transformer import ChunkErrorHandler
 from laygo.transformers.transformer import InternalTransformer
 from laygo.transformers.transformer import PipelineFunction
 from laygo.transformers.transformer import Transformer
-
-
-class ThreadedPipelineContextType(PipelineContext):
-  """A specific context type for threaded transformers that includes a lock."""
-
-  lock: threading.Lock
 
 
 def createThreadedTransformer[T](
@@ -85,6 +77,9 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
     super().__init__(chunk_size, transformer)
     self.max_workers = max_workers
     self.ordered = ordered
+    # Rule 3: Threaded transformers create a parallel context manager by default.
+    # This is because threads share memory, so a thread-safe (locking) manager is required.
+    self._default_context = ParallelContextManager()
 
   @classmethod
   def from_transformer[T, U](
@@ -112,7 +107,7 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
       ordered=ordered,
     )
 
-  def __call__(self, data: Iterable[In], context: PipelineContext | None = None) -> Iterator[Out]:
+  def __call__(self, data: Iterable[In], context: IContextManager | None = None) -> Iterator[Out]:
     """Execute the transformer on data concurrently.
 
     It uses the shared context provided by the Pipeline, if available.
@@ -124,24 +119,18 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
     Returns:
         An iterator over the transformed data.
     """
-    run_context = context if context is not None else self.context
+    run_context = context if context is not None else self._default_context
 
-    # Detect if the context is already managed by the Pipeline.
-    is_managed_context = isinstance(run_context, DictProxy)
-
-    if is_managed_context:
-      # Use the existing shared context and lock from the Pipeline.
-      shared_context = run_context
-      yield from self._execute_with_context(data, shared_context)
-    else:
-      # Fallback for standalone use: create a thread-safe context.
-      # Since threads share memory, we can use the context directly with a lock.
-      if "lock" not in run_context:
-        run_context["lock"] = threading.Lock()
-
+    # Since threads share memory, we can pass the context manager directly.
+    # No handle/proxy mechanism is needed, but the locking inside
+    # ParallelContextManager is crucial for thread safety.
+    try:
       yield from self._execute_with_context(data, run_context)
+    finally:
+      if run_context is self._default_context:
+        self._default_context.shutdown()
 
-  def _execute_with_context(self, data: Iterable[In], shared_context: MutableMapping[str, Any]) -> Iterator[Out]:
+  def _execute_with_context(self, data: Iterable[In], shared_context: IContextManager) -> Iterator[Out]:
     """Execute the transformation logic with a given context.
 
     Args:
@@ -152,7 +141,7 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
         An iterator over the transformed data.
     """
 
-    def process_chunk(chunk: list[In], shared_context: MutableMapping[str, Any]) -> list[Out]:
+    def process_chunk(chunk: list[In], shared_context: IContextManager) -> list[Out]:
       """Process a single chunk by passing the chunk and context explicitly.
 
       Args:
@@ -257,6 +246,6 @@ class ThreadedTransformer[In, Out](Transformer[In, Out]):
     super().catch(sub_pipeline_builder, on_error)
     return self  # type: ignore
 
-  def short_circuit(self, function: Callable[[PipelineContext], bool | None]) -> "ThreadedTransformer[In, Out]":
+  def short_circuit(self, function: Callable[[IContextManager], bool | None]) -> "ThreadedTransformer[In, Out]":
     super().short_circuit(function)
     return self
