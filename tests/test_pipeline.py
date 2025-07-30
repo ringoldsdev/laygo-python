@@ -521,7 +521,7 @@ class TestPipelineBranch:
       ),
       "numbers": (  # This condition also matches integers
         createTransformer(float).map(lambda x: x * 10),
-        lambda x: isinstance(x, (int, float)),
+        lambda x: isinstance(x, int | float),
       ),
     }
 
@@ -554,7 +554,7 @@ class TestPipelineBranch:
       ),
       "numbers": (  # This condition also matches integers
         createTransformer(float).map(lambda x: x * 10),
-        lambda x: isinstance(x, (int, float)),
+        lambda x: isinstance(x, int | float),
       ),
     }
 
