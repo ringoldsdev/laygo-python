@@ -1,5 +1,8 @@
 """Tests for the Pipeline class."""
 
+import os
+import time
+
 from laygo import Pipeline
 from laygo.context.types import IContextManager
 from laygo.transformers.transformer import createTransformer
@@ -565,3 +568,52 @@ class TestPipelineBranch:
     assert sorted(result["strings"]) == ["A", "B"]
     # The float (99.9) AND the integers (1, 2, 3) are processed by the 'numbers' branch.
     assert sorted(result["numbers"]) == [10.0, 20.0, 30.0, 999.0]
+
+  def test_branch_process_executor(self):
+    """Test branching with executor_type='process' for CPU-bound work."""
+
+    # Setup: A CPU-bound task is ideal for demonstrating process parallelism.
+    def heavy_computation(x: int) -> int:
+      # A simple but non-trivial calculation
+      time.sleep(0.01)  # Simulate work
+      return x * x
+
+    # This function will run inside the worker process to check its PID
+    def check_pid(chunk: list[int], ctx: IContextManager) -> list[int]:
+      # Store the worker's process ID in the shared context
+      if chunk:
+        ctx[f"pid_for_item_{chunk[0]}"] = os.getpid()
+      return chunk
+
+    data = [1, 2, 3, 4]
+    pipeline = Pipeline(data)
+    main_pid = os.getpid()
+
+    # Define branches with CPU-bound work and the PID check
+    branches = {
+      "evens": (
+        createTransformer(int).filter(lambda x: x % 2 == 0).map(heavy_computation)._pipe(check_pid),
+        lambda x: True,  # Condition to route data
+      ),
+      "odds": (
+        createTransformer(int).filter(lambda x: x % 2 != 0).map(heavy_computation)._pipe(check_pid),
+        lambda x: True,
+      ),
+    }
+
+    # Action: Execute the branch with the process executor
+    result, context = pipeline.branch(
+      branches,
+      first_match=False,  # Use broadcast to send to all matching
+      executor_type="process",
+    )
+
+    # Assert: The computational results are correct
+    assert sorted(result["evens"]) == [4, 16]  # 2*2, 4*4
+    assert sorted(result["odds"]) == [1, 9]  # 1*1, 3*3
+
+    # Assert: The work was done in different processes
+    worker_pids = {v for k, v in context.items() if "pid" in k}
+    assert len(worker_pids) > 0, "No worker PIDs were found in the context."
+    for pid in worker_pids:
+      assert pid != main_pid, f"Worker PID {pid} is the same as the main PID."
