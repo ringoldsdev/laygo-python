@@ -5,7 +5,7 @@ import pytest
 from laygo import ErrorHandler
 from laygo import Transformer
 from laygo.context.simple import SimpleContextManager
-from laygo.transformers.transformer import createTransformer
+from laygo.transformers.transformer import create_transformer
 
 
 class TestTransformerBasics:
@@ -13,13 +13,13 @@ class TestTransformerBasics:
 
   def test_identity_transformer(self):
     """Test that init creates an identity transformer."""
-    transformer = createTransformer(int)
+    transformer = create_transformer(int)
     result = list(transformer([1, 2, 3]))
     assert result == [1, 2, 3]
 
   def test_custom_chunk_size(self):
     """Test transformer with custom chunk size."""
-    transformer = createTransformer(int, chunk_size=2)
+    transformer = create_transformer(int, chunk_size=2)
     assert transformer.chunk_size == 2
     # Functionality should work regardless of chunk size
     result = list(transformer([1, 2, 3, 4]))
@@ -31,27 +31,27 @@ class TestTransformerOperations:
 
   def test_map_transformation(self):
     """Test map transforms each element."""
-    transformer = createTransformer(int).map(lambda x: x * 2)
+    transformer = create_transformer(int).map(lambda x: x * 2)
     result = list(transformer([1, 2, 3]))
     assert result == [2, 4, 6]
 
   def test_filter_operation(self):
     """Test filter keeps only matching elements."""
-    transformer = createTransformer(int).filter(lambda x: x % 2 == 0)
+    transformer = create_transformer(int).filter(lambda x: x % 2 == 0)
     result = list(transformer([1, 2, 3, 4, 5, 6]))
     assert result == [2, 4, 6]
 
   def test_flatten_operation(self):
     """Test flatten with various iterable types."""
     # Test with lists
-    transformer = createTransformer(list).flatten()
+    transformer = create_transformer(list).flatten()
     result = list(transformer([[1, 2], [3, 4], [5]]))
     assert result == [1, 2, 3, 4, 5]
 
   def test_tap_side_effects(self):
     """Test tap applies side effects without modifying data."""
     side_effects = []
-    transformer = createTransformer(int).tap(lambda x: side_effects.append(x))
+    transformer = create_transformer(int).tap(lambda x: side_effects.append(x))
     result = list(transformer([1, 2, 3]))
 
     assert result == [1, 2, 3]  # Data unchanged
@@ -60,13 +60,13 @@ class TestTransformerOperations:
   def test_loop_basic_operation(self):
     """Test loop applies transformer repeatedly until condition is met."""
     # Create a loop transformer that adds 1 to each element
-    increment_transformer = createTransformer(int).map(lambda x: x + 1)
+    increment_transformer = create_transformer(int).map(lambda x: x + 1)
 
     # Continue looping while any element is less than 5
     def condition(chunk):
       return any(x < 5 for x in chunk)
 
-    transformer = createTransformer(int).loop(increment_transformer, condition, max_iterations=10)
+    transformer = create_transformer(int).loop(increment_transformer, condition, max_iterations=10)
     result = list(transformer([1, 2, 3]))
 
     # Should increment until all elements are >= 5: [1,2,3] -> [2,3,4] -> [3,4,5] -> [4,5,6] -> [5,6,7]
@@ -75,13 +75,13 @@ class TestTransformerOperations:
   def test_loop_with_max_iterations(self):
     """Test loop respects max_iterations limit."""
     # Create a loop transformer that adds 1 to each element
-    increment_transformer = createTransformer(int).map(lambda x: x + 1)
+    increment_transformer = create_transformer(int).map(lambda x: x + 1)
 
     # Condition that would normally continue indefinitely
     def always_true_condition(chunk):
       return True
 
-    transformer = createTransformer(int).loop(increment_transformer, always_true_condition, max_iterations=3)
+    transformer = create_transformer(int).loop(increment_transformer, always_true_condition, max_iterations=3)
     result = list(transformer([1, 2, 3]))
 
     # Should stop after 3 iterations: [1,2,3] -> [2,3,4] -> [3,4,5] -> [4,5,6]
@@ -89,13 +89,13 @@ class TestTransformerOperations:
 
   def test_loop_no_iterations(self):
     """Test loop when condition is false from the start."""
-    increment_transformer = createTransformer(int).map(lambda x: x + 1)
+    increment_transformer = create_transformer(int).map(lambda x: x + 1)
 
     # Condition that's immediately false
     def exit_immediately(chunk):
       return False
 
-    transformer = createTransformer(int).loop(increment_transformer, exit_immediately)
+    transformer = create_transformer(int).loop(increment_transformer, exit_immediately)
     result = list(transformer([1, 2, 3]))
 
     # Should not iterate at all
@@ -135,14 +135,14 @@ class TestTransformerContextSupport:
 
     # Create a side-effect transformer that logs processed values
     side_effect_transformer = (
-      createTransformer(int)
+      create_transformer(int)
       .map(lambda x: x * 10)  # Transform for side effect
       .tap(lambda x: side_effects.append(x))  # Capture the transformed values
     )
 
     # Main transformer that uses the side-effect transformer via tap
     main_transformer = (
-      createTransformer(int)
+      create_transformer(int)
       .map(lambda x: x * 2)  # Main transformation
       .tap(side_effect_transformer)  # Apply side-effect transformer
       .map(lambda x: x + 1)  # Continue main transformation
@@ -163,14 +163,14 @@ class TestTransformerContextSupport:
 
     # Create a context-aware side-effect transformer
     side_effect_transformer = (
-      createTransformer(int)
+      create_transformer(int)
       .map(lambda x, ctx: x * ctx["multiplier"])  # Use context multiplier
       .tap(lambda x, ctx: side_effects.append(f"{ctx['log_prefix']}{x}"))  # Log with context prefix
     )
 
     # Main transformer
     main_transformer = (
-      createTransformer(int)
+      create_transformer(int)
       .map(lambda x: x + 10)  # Main transformation
       .tap(side_effect_transformer)  # Apply side-effect transformer with context
     )
@@ -190,7 +190,7 @@ class TestTransformerContextSupport:
 
     # Create a context-aware loop transformer that uses context increment
     loop_transformer = (
-      createTransformer(int)
+      create_transformer(int)
       .map(lambda x, ctx: x + ctx["increment"])  # Use context increment
       .tap(lambda x, ctx: side_effects.append(f"iteration:{x}"))  # Log each iteration
     )
@@ -199,7 +199,7 @@ class TestTransformerContextSupport:
     def condition_with_context(chunk, ctx):
       return sum(chunk) < ctx["target_sum"]
 
-    main_transformer = createTransformer(int).loop(loop_transformer, condition_with_context, max_iterations=10)
+    main_transformer = create_transformer(int).loop(loop_transformer, condition_with_context, max_iterations=10)
 
     result = list(main_transformer([1, 2, 3], context))
 
@@ -216,13 +216,13 @@ class TestTransformerContextSupport:
     context = SimpleContextManager({"max_value": 20, "increment": 3})
 
     # Simple loop transformer that uses context increment
-    loop_transformer = createTransformer(int).map(lambda x, ctx: x + ctx["increment"])
+    loop_transformer = create_transformer(int).map(lambda x, ctx: x + ctx["increment"])
 
     # Context-aware condition: continue while max value in chunk is less than context max_value
     def condition_with_context(chunk, ctx):
       return max(chunk) < ctx["max_value"]
 
-    main_transformer = createTransformer(int).loop(loop_transformer, condition_with_context, max_iterations=10)
+    main_transformer = create_transformer(int).loop(loop_transformer, condition_with_context, max_iterations=10)
 
     result = list(main_transformer([5, 8], context))
 
@@ -235,14 +235,14 @@ class TestTransformerChaining:
 
   def test_map_filter_chain(self):
     """Test map followed by filter."""
-    transformer = createTransformer(int).map(lambda x: x * 2).filter(lambda x: x > 4)
+    transformer = create_transformer(int).map(lambda x: x * 2).filter(lambda x: x > 4)
     result = list(transformer([1, 2, 3, 4]))
     assert result == [6, 8]
 
   def test_complex_operation_chain(self):
     """Test complex chain with multiple operations."""
     transformer = (
-      createTransformer(int)
+      create_transformer(int)
       .map(lambda x: [x, x * 2])  # Create pairs
       .flatten()  # Flatten to single list
       .filter(lambda x: x > 3)  # Keep values > 3
@@ -252,7 +252,7 @@ class TestTransformerChaining:
 
   def test_transformer_composition(self):
     """Test transformer composition with apply."""
-    base_transformer = createTransformer(int).map(lambda x: x * 2)
+    base_transformer = create_transformer(int).map(lambda x: x * 2)
     composed_transformer = base_transformer.apply(lambda t: t.filter(lambda x: x > 4))
     result = list(composed_transformer([1, 2, 3, 4]))
     assert result == [6, 8]
@@ -263,7 +263,7 @@ class TestTransformerReduceOperations:
 
   def test_basic_reduce(self):
     """Test reduce with sum operation."""
-    transformer = createTransformer(int)
+    transformer = create_transformer(int)
     reducer = transformer.reduce(lambda acc, x: acc + x, initial=0)
     result = list(reducer([1, 2, 3, 4], None))
     assert result == [10]
@@ -278,14 +278,14 @@ class TestTransformerReduceOperations:
 
   def test_reduce_after_transformation(self):
     """Test reduce after map transformation."""
-    transformer = createTransformer(int).map(lambda x: x * 2)
+    transformer = create_transformer(int).map(lambda x: x * 2)
     reducer = transformer.reduce(lambda acc, x: acc + x, initial=0)
     result = list(reducer([1, 2, 3], None))
     assert result == [12]  # [2, 4, 6] summed = 12
 
   def test_reduce_per_chunk_basic(self):
     """Test reduce with per_chunk=True for basic operation."""
-    transformer = createTransformer(int, chunk_size=2).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
+    transformer = create_transformer(int, chunk_size=2).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
     result = list(transformer([1, 2, 3, 4, 5]))
     # With chunk_size=2: [1, 2] -> 3, [3, 4] -> 7, [5] -> 5
     assert result == [3, 7, 5]
@@ -293,7 +293,7 @@ class TestTransformerReduceOperations:
   def test_reduce_per_chunk_with_context(self):
     """Test reduce with per_chunk=True and context-aware function."""
     context = SimpleContextManager({"multiplier": 2})
-    transformer = createTransformer(int, chunk_size=2).reduce(
+    transformer = create_transformer(int, chunk_size=2).reduce(
       lambda acc, x, ctx: acc + (x * ctx["multiplier"]), initial=0, per_chunk=True
     )
     result = list(transformer([1, 2, 3], context))
@@ -302,13 +302,13 @@ class TestTransformerReduceOperations:
 
   def test_reduce_per_chunk_empty_chunks(self):
     """Test reduce with per_chunk=True handles empty chunks correctly."""
-    transformer = createTransformer(int, chunk_size=5).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
+    transformer = create_transformer(int, chunk_size=5).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
     result = list(transformer([]))
     assert result == []
 
   def test_reduce_per_chunk_single_element_chunks(self):
     """Test reduce with per_chunk=True with single element chunks."""
-    transformer = createTransformer(int, chunk_size=1).reduce(lambda acc, x: acc + x, initial=10, per_chunk=True)
+    transformer = create_transformer(int, chunk_size=1).reduce(lambda acc, x: acc + x, initial=10, per_chunk=True)
     result = list(transformer([1, 2, 3]))
     # Each chunk has one element: [1] -> 10+1=11, [2] -> 10+2=12, [3] -> 10+3=13
     assert result == [11, 12, 13]
@@ -316,7 +316,7 @@ class TestTransformerReduceOperations:
   def test_reduce_per_chunk_chaining(self):
     """Test reduce with per_chunk=True can be chained with other operations."""
     transformer = (
-      createTransformer(int, chunk_size=2)
+      create_transformer(int, chunk_size=2)
       .map(lambda x: x * 2)
       .reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
       .map(lambda x: x * 10)
@@ -332,12 +332,12 @@ class TestTransformerReduceOperations:
     data = [1, 2, 3, 4, 5, 6]
 
     # Test with chunk_size=2
-    transformer_2 = createTransformer(int, chunk_size=2).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
+    transformer_2 = create_transformer(int, chunk_size=2).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
     result_2 = list(transformer_2(data))
     assert result_2 == [3, 7, 11]  # [1,2]->3, [3,4]->7, [5,6]->11
 
     # Test with chunk_size=3
-    transformer_3 = createTransformer(int, chunk_size=3).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
+    transformer_3 = create_transformer(int, chunk_size=3).reduce(lambda acc, x: acc + x, initial=0, per_chunk=True)
     result_3 = list(transformer_3(data))
     assert result_3 == [6, 15]  # [1,2,3]->6, [4,5,6]->15
 
@@ -346,13 +346,13 @@ class TestTransformerReduceOperations:
     data = [1, 2, 3, 4]
 
     # Terminal reduce (per_chunk=False) - returns a callable
-    transformer_terminal = createTransformer(int, chunk_size=2)
+    transformer_terminal = create_transformer(int, chunk_size=2)
     reducer_terminal = transformer_terminal.reduce(lambda acc, x: acc + x, initial=0, per_chunk=False)
     result_terminal = list(reducer_terminal(data, None))
     assert result_terminal == [10]  # Sum of all elements
 
     # Per-chunk reduce (per_chunk=True) - returns a transformer
-    transformer_per_chunk = createTransformer(int, chunk_size=2).reduce(
+    transformer_per_chunk = create_transformer(int, chunk_size=2).reduce(
       lambda acc, x: acc + x, initial=0, per_chunk=True
     )
     result_per_chunk = list(transformer_per_chunk(data))
@@ -364,19 +364,19 @@ class TestTransformerEdgeCases:
 
   def test_empty_data(self):
     """Test transformer with empty data."""
-    transformer = createTransformer(int).map(lambda x: x * 2)
+    transformer = create_transformer(int).map(lambda x: x * 2)
     result = list(transformer([]))
     assert result == []
 
   def test_single_element(self):
     """Test transformer with single element."""
-    transformer = createTransformer(int).map(lambda x: x * 2).filter(lambda x: x > 0)
+    transformer = create_transformer(int).map(lambda x: x * 2).filter(lambda x: x > 0)
     result = list(transformer([5]))
     assert result == [10]
 
   def test_filter_removes_all_elements(self):
     """Test filter that removes all elements."""
-    transformer = createTransformer(int).filter(lambda x: x > 100)
+    transformer = create_transformer(int).filter(lambda x: x > 100)
     result = list(transformer([1, 2, 3]))
     assert result == []
 
@@ -385,11 +385,11 @@ class TestTransformerEdgeCases:
     data = list(range(100))
 
     # Small chunks
-    small_chunk_transformer = createTransformer(int, chunk_size=5).map(lambda x: x * 2)
+    small_chunk_transformer = create_transformer(int, chunk_size=5).map(lambda x: x * 2)
     small_result = list(small_chunk_transformer(data))
 
     # Large chunks
-    large_chunk_transformer = createTransformer(int, chunk_size=50).map(lambda x: x * 2)
+    large_chunk_transformer = create_transformer(int, chunk_size=50).map(lambda x: x * 2)
     large_result = list(large_chunk_transformer(data))
 
     # Results should be identical regardless of chunk size
@@ -401,7 +401,7 @@ class TestTransformerFromTransformer:
 
   def test_copy_transformer_logic(self):
     """Test that from_transformer copies transformation logic."""
-    source = createTransformer(int, chunk_size=50).map(lambda x: x * 3).filter(lambda x: x > 6)
+    source = create_transformer(int, chunk_size=50).map(lambda x: x * 3).filter(lambda x: x > 6)
     target = Transformer.from_transformer(source)
 
     data = [1, 2, 3, 4, 5]
@@ -413,7 +413,7 @@ class TestTransformerFromTransformer:
 
   def test_copy_with_custom_parameters(self):
     """Test from_transformer with custom parameters."""
-    source = createTransformer(int).map(lambda x: x * 2)
+    source = create_transformer(int).map(lambda x: x * 2)
     target = Transformer.from_transformer(source, chunk_size=200)
 
     assert target.chunk_size == 200
@@ -427,14 +427,14 @@ class TestTransformerErrorHandling:
 
   def test_catch_with_successful_operation(self):
     """Test catch with successful transformation."""
-    transformer = createTransformer(int).catch(lambda t: t.map(lambda x: x * 2))
+    transformer = create_transformer(int).catch(lambda t: t.map(lambda x: x * 2))
     result = list(transformer([1, 2, 3]))
     assert result == [2, 4, 6]
 
   def test_catch_with_error_isolation(self):
     """Test catch isolates errors to specific chunks."""
     errored_chunks = []
-    transformer = createTransformer(int, chunk_size=1).catch(
+    transformer = create_transformer(int, chunk_size=1).catch(
       lambda t: t.map(lambda x: x / 0),  # Division by zero
       on_error=lambda chunk, error, context: errored_chunks.append(chunk),  # type: ignore
     )
@@ -449,7 +449,7 @@ class TestTransformerErrorHandling:
     error_handler = ErrorHandler()
     error_handler.on_error(lambda chunk, error, context: errored_chunks.append(chunk))
 
-    transformer = createTransformer(int, chunk_size=1).on_error(error_handler).catch(lambda t: t.map(lambda x: x / 0))
+    transformer = create_transformer(int, chunk_size=1).on_error(error_handler).catch(lambda t: t.map(lambda x: x / 0))
 
     list(transformer([1, 2, 3]))
     assert errored_chunks == [[1], [2], [3]]
@@ -461,7 +461,7 @@ class TestTransformerErrorHandling:
       context["error_occurred"] = True
 
     transformer = (
-      createTransformer(int, chunk_size=1)
+      create_transformer(int, chunk_size=1)
       .catch(
         lambda t: t.map(lambda x: x / 0),
         on_error=set_error_flag,  # type: ignore
@@ -483,7 +483,7 @@ class TestTransformerErrorHandling:
         raise RuntimeError("Short-circuit condition met, stopping execution.")
 
     transformer = (
-      createTransformer(int, chunk_size=1)
+      create_transformer(int, chunk_size=1)
       .catch(
         lambda t: t.map(lambda x: x / 0),
         on_error=set_error_flag,  # type: ignore

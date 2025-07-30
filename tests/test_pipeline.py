@@ -5,7 +5,7 @@ import time
 
 from laygo import Pipeline
 from laygo.context.types import IContextManager
-from laygo.transformers.transformer import createTransformer
+from laygo.transformers.transformer import create_transformer
 
 
 class TestPipelineBasics:
@@ -42,7 +42,7 @@ class TestPipelineTransformations:
 
   def test_apply_with_transformer(self):
     """Test apply with transformer object."""
-    transformer = createTransformer(int).map(lambda x: x * 2).filter(lambda x: x > 4)
+    transformer = create_transformer(int).map(lambda x: x * 2).filter(lambda x: x > 4)
     result, _ = Pipeline([1, 2, 3, 4]).apply(transformer).to_list()
     assert result == [6, 8]
 
@@ -99,7 +99,7 @@ class TestPipelineTerminalOperations:
   def test_consume_processes_without_return(self):
     """Test consume processes all elements without returning anything."""
     side_effects = []
-    transformer = createTransformer(int).tap(lambda x: side_effects.append(x))
+    transformer = create_transformer(int).tap(lambda x: side_effects.append(x))
     result, _ = Pipeline([1, 2, 3]).apply(transformer).consume()
 
     assert result is None
@@ -178,7 +178,7 @@ class TestPipelinePerformance:
   def test_chunked_processing_consistency(self):
     """Test that chunked processing produces consistent results."""
     # Use small chunk size to test chunking behavior
-    transformer = createTransformer(int, chunk_size=10).map(lambda x: x + 1)
+    transformer = create_transformer(int, chunk_size=10).map(lambda x: x + 1)
     result, _ = Pipeline(list(range(100))).apply(transformer).to_list()
 
     expected = list(range(1, 101))  # [1, 2, 3, ..., 100]
@@ -234,8 +234,8 @@ class TestPipelineBranch:
     pipeline = Pipeline([1, 2, 3, 4, 5])
 
     # Create two different branch transformers
-    double_branch = createTransformer(int).map(lambda x: x * 2)
-    square_branch = createTransformer(int).map(lambda x: x**2)
+    double_branch = create_transformer(int).map(lambda x: x * 2)
+    square_branch = create_transformer(int).map(lambda x: x**2)
 
     # Execute branching
     result, _ = pipeline.branch({"doubled": double_branch, "squared": square_branch})
@@ -255,8 +255,8 @@ class TestPipelineBranch:
     """Test branch with empty input data."""
     pipeline = Pipeline([])
 
-    double_branch = createTransformer(int).map(lambda x: x * 2)
-    square_branch = createTransformer(int).map(lambda x: x**2)
+    double_branch = create_transformer(int).map(lambda x: x * 2)
+    square_branch = create_transformer(int).map(lambda x: x**2)
 
     result, _ = pipeline.branch({"doubled": double_branch, "squared": square_branch})
 
@@ -276,7 +276,7 @@ class TestPipelineBranch:
     """Test branch with only one branch."""
     pipeline = Pipeline([1, 2, 3, 4])
 
-    triple_branch = createTransformer(int).map(lambda x: x * 3)
+    triple_branch = create_transformer(int).map(lambda x: x * 3)
 
     result, _ = pipeline.branch({"tripled": triple_branch})
 
@@ -289,8 +289,8 @@ class TestPipelineBranch:
     """Test branch with custom queue size parameter."""
     pipeline = Pipeline([1, 2, 3, 4, 5])
 
-    double_branch = createTransformer(int).map(lambda x: x * 2)
-    triple_branch = createTransformer(int).map(lambda x: x * 3)
+    double_branch = create_transformer(int).map(lambda x: x * 2)
+    triple_branch = create_transformer(int).map(lambda x: x * 3)
 
     # Test with a small queue size
     result, _ = pipeline.branch(
@@ -311,9 +311,9 @@ class TestPipelineBranch:
     """Test branch with three branches to verify fan-out distribution."""
     pipeline = Pipeline([1, 2, 3, 4, 5, 6, 7, 8, 9])
 
-    add_10 = createTransformer(int).map(lambda x: x + 10)
-    add_20 = createTransformer(int).map(lambda x: x + 20)
-    add_30 = createTransformer(int).map(lambda x: x + 30)
+    add_10 = create_transformer(int).map(lambda x: x + 10)
+    add_20 = create_transformer(int).map(lambda x: x + 20)
+    add_30 = create_transformer(int).map(lambda x: x + 30)
 
     result, _ = pipeline.branch({"add_10": add_10, "add_20": add_20, "add_30": add_30})
 
@@ -330,8 +330,8 @@ class TestPipelineBranch:
     pipeline = Pipeline([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
     # Create transformers that filter data
-    even_branch = createTransformer(int).filter(lambda x: x % 2 == 0)
-    odd_branch = createTransformer(int).filter(lambda x: x % 2 == 1)
+    even_branch = create_transformer(int).filter(lambda x: x % 2 == 0)
+    odd_branch = create_transformer(int).filter(lambda x: x % 2 == 1)
 
     result, _ = pipeline.branch({"evens": even_branch, "odds": odd_branch})
 
@@ -346,10 +346,10 @@ class TestPipelineBranch:
     pipeline = Pipeline([1, 2, 3, 4, 5, 6])
 
     # Complex transformer: filter evens, then double, then add 1
-    complex_branch = createTransformer(int).filter(lambda x: x % 2 == 0).map(lambda x: x * 2).map(lambda x: x + 1)
+    complex_branch = create_transformer(int).filter(lambda x: x % 2 == 0).map(lambda x: x * 2).map(lambda x: x + 1)
 
     # Simple transformer: just multiply by 10
-    simple_branch = createTransformer(int).map(lambda x: x * 10)
+    simple_branch = create_transformer(int).map(lambda x: x * 10)
 
     result, _ = pipeline.branch({"complex": complex_branch, "simple": simple_branch})
 
@@ -367,8 +367,8 @@ class TestPipelineBranch:
     pipeline = Pipeline(data)
 
     # Use small chunk size to ensure multiple chunks
-    small_chunk_transformer = createTransformer(int, chunk_size=5).map(lambda x: x * 2)
-    identity_transformer = createTransformer(int, chunk_size=5)
+    small_chunk_transformer = create_transformer(int, chunk_size=5).map(lambda x: x * 2)
+    identity_transformer = create_transformer(int, chunk_size=5)
 
     result, _ = pipeline.branch(
       {
@@ -389,8 +389,8 @@ class TestPipelineBranch:
     """Test branch with flatten operations."""
     pipeline = Pipeline([[1, 2], [3, 4], [5, 6]])
 
-    flatten_branch = createTransformer(list).flatten()
-    count_branch = createTransformer(list).map(lambda x: len(x))
+    flatten_branch = create_transformer(list).flatten()
+    count_branch = create_transformer(list).map(lambda x: len(x))
 
     result, _ = pipeline.branch(
       {
@@ -410,7 +410,7 @@ class TestPipelineBranch:
     pipeline = Pipeline([1, 2, 3, 4, 5])
 
     # Create a simple transformer
-    double_branch = createTransformer(int).map(lambda x: x * 2)
+    double_branch = create_transformer(int).map(lambda x: x * 2)
 
     # Execute branch
     result, _ = pipeline.branch({"doubled": double_branch})
@@ -429,8 +429,8 @@ class TestPipelineBranch:
     pipeline = Pipeline(data)
 
     # Different chunk sizes for different branches
-    large_chunk_branch = createTransformer(int, chunk_size=10).map(lambda x: x + 100)
-    small_chunk_branch = createTransformer(int, chunk_size=3).map(lambda x: x + 200)
+    large_chunk_branch = create_transformer(int, chunk_size=10).map(lambda x: x + 100)
+    small_chunk_branch = create_transformer(int, chunk_size=3).map(lambda x: x + 200)
 
     result, _ = pipeline.branch({"large_chunk": large_chunk_branch, "small_chunk": small_chunk_branch})
 
@@ -446,8 +446,8 @@ class TestPipelineBranch:
     pipeline = Pipeline([5, 3, 8, 1, 9, 2])
 
     # Identity transformer should preserve order
-    identity_branch = createTransformer(int)
-    reverse_branch = createTransformer(int).map(lambda x: -x)
+    identity_branch = create_transformer(int)
+    reverse_branch = create_transformer(int).map(lambda x: -x)
 
     result, _ = pipeline.branch({"identity": identity_branch, "negated": reverse_branch})
 
@@ -462,8 +462,8 @@ class TestPipelineBranch:
     pipeline = Pipeline([1, 2, 0, 4, 5])
 
     # Create a transformer that will fail on zero division
-    division_branch = createTransformer(int).map(lambda x: 10 // x)
-    safe_branch = createTransformer(int).map(lambda x: x * 2)
+    division_branch = create_transformer(int).map(lambda x: 10 // x)
+    safe_branch = create_transformer(int).map(lambda x: x * 2)
 
     # The division_branch should fail when processing 0
     # The current implementation catches exceptions and returns empty lists for failed branches
@@ -489,8 +489,8 @@ class TestPipelineBranch:
       print("branch b", ctx["branch_b_processed"])
       return [x * 3 for x in chunk]
 
-    branch_a = createTransformer(int)._pipe(context_modifier_a)
-    branch_b = createTransformer(int)._pipe(context_modifier_b)
+    branch_a = create_transformer(int)._pipe(context_modifier_a)
+    branch_b = create_transformer(int)._pipe(context_modifier_b)
 
     result, context = pipeline.branch({"branch_a": branch_a, "branch_b": branch_b})
 
@@ -512,15 +512,15 @@ class TestPipelineBranch:
 
     branches = {
       "integers": (
-        createTransformer(int).map(lambda x: x + 1),
+        create_transformer(int).map(lambda x: x + 1),
         lambda x: isinstance(x, int),
       ),
       "strings": (
-        createTransformer(str).map(lambda x: x.upper()),
+        create_transformer(str).map(lambda x: x.upper()),
         lambda x: isinstance(x, str),
       ),
       "numbers": (  # This condition also matches integers
-        createTransformer(float).map(lambda x: x * 10),
+        create_transformer(float).map(lambda x: x * 10),
         lambda x: isinstance(x, int | float),
       ),
     }
@@ -545,15 +545,15 @@ class TestPipelineBranch:
 
     branches = {
       "integers": (
-        createTransformer(int).map(lambda x: x + 1),
+        create_transformer(int).map(lambda x: x + 1),
         lambda x: isinstance(x, int),
       ),
       "strings": (
-        createTransformer(str).map(lambda x: x.upper()),
+        create_transformer(str).map(lambda x: x.upper()),
         lambda x: isinstance(x, str),
       ),
       "numbers": (  # This condition also matches integers
-        createTransformer(float).map(lambda x: x * 10),
+        create_transformer(float).map(lambda x: x * 10),
         lambda x: isinstance(x, int | float),
       ),
     }
@@ -592,11 +592,11 @@ class TestPipelineBranch:
     # Define branches with CPU-bound work and the PID check
     branches = {
       "evens": (
-        createTransformer(int).filter(lambda x: x % 2 == 0).map(heavy_computation)._pipe(check_pid),
+        create_transformer(int).filter(lambda x: x % 2 == 0).map(heavy_computation)._pipe(check_pid),
         lambda x: True,  # Condition to route data
       ),
       "odds": (
-        createTransformer(int).filter(lambda x: x % 2 != 0).map(heavy_computation)._pipe(check_pid),
+        create_transformer(int).filter(lambda x: x % 2 != 0).map(heavy_computation)._pipe(check_pid),
         lambda x: True,
       ),
     }

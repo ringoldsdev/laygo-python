@@ -22,6 +22,7 @@ from laygo.errors import ErrorHandler
 from laygo.transformers.transformer import ChunkErrorHandler
 from laygo.transformers.transformer import PipelineFunction
 from laygo.transformers.transformer import Transformer
+from laygo.transformers.types import BaseTransformer
 
 In = TypeVar("In")
 Out = TypeVar("Out")
@@ -56,7 +57,7 @@ def createHTTPTransformer[T](
   )
 
 
-class HTTPTransformer(Transformer[In, Out]):
+class HTTPTransformer[In, Out](BaseTransformer[In, Out]):
   """A self-sufficient, chainable transformer for distributed execution.
 
   This transformer manages its own distributed execution by coordinating

@@ -17,19 +17,21 @@ from laygo.context import SimpleContextManager
 from laygo.errors import ErrorHandler
 from laygo.helpers import is_context_aware
 from laygo.helpers import is_context_aware_reduce
+from laygo.transformers.strategies.sequential import SequentialStrategy
+from laygo.transformers.strategies.threaded import ThreadedStrategy
+from laygo.transformers.strategies.types import ExecutionStrategy
+from laygo.transformers.types import BaseTransformer
+from laygo.transformers.types import InternalTransformer
 
 DEFAULT_CHUNK_SIZE = 1000
 
 
 type PipelineFunction[Out, T] = Callable[[Out], T] | Callable[[Out, IContextManager], T]
 type PipelineReduceFunction[U, Out] = Callable[[U, Out], U] | Callable[[U, Out, IContextManager], U]
-
-# The internal transformer function signature is changed to explicitly accept a context.
-type InternalTransformer[In, Out] = Callable[[list[In], IContextManager], list[Out]]
 type ChunkErrorHandler[In, U] = Callable[[list[In], Exception, IContextManager], list[U]]
 
 
-def createTransformer[T](_type_hint: type[T], chunk_size: int = DEFAULT_CHUNK_SIZE) -> "Transformer[T, T]":
+def create_transformer[T](_type_hint: type[T], chunk_size: int = DEFAULT_CHUNK_SIZE) -> "Transformer[T, T]":
   """Create a new identity pipeline with an explicit type hint.
 
   Args:
@@ -40,6 +42,58 @@ def createTransformer[T](_type_hint: type[T], chunk_size: int = DEFAULT_CHUNK_SI
       A new identity transformer that passes data through unchanged.
   """
   return Transformer[T, T](chunk_size=chunk_size)  # type: ignore
+
+
+def create_threaded_transformer[T](
+  _type_hint: type[T],
+  max_workers: int = 4,
+  ordered: bool = True,
+  chunk_size: int = DEFAULT_CHUNK_SIZE,
+) -> "Transformer[T, T]":
+  """Create a new identity threaded transformer with an explicit type hint.
+
+  Args:
+      _type_hint: Type hint for the data being processed.
+      max_workers: Maximum number of worker threads.
+      ordered: Whether to preserve order of results.
+      chunk_size: Size of chunks to process data in.
+
+  Returns:
+      A new identity threaded transformer.
+  """
+  return Transformer[T, T](
+    chunk_size=chunk_size,
+    strategy=ThreadedStrategy(
+      max_workers=max_workers,
+      ordered=ordered,
+    ),
+  )
+
+
+def create_process_transformer[T](
+  _type_hint: type[T],
+  max_workers: int = 4,
+  ordered: bool = True,
+  chunk_size: int = DEFAULT_CHUNK_SIZE,
+) -> "Transformer[T, T]":
+  """Create a new identity threaded transformer with an explicit type hint.
+
+  Args:
+      _type_hint: Type hint for the data being processed.
+      max_workers: Maximum number of worker threads.
+      ordered: Whether to preserve order of results.
+      chunk_size: Size of chunks to process data in.
+
+  Returns:
+      A new identity threaded transformer.
+  """
+  return Transformer[T, T](
+    chunk_size=chunk_size,
+    strategy=ThreadedStrategy(
+      max_workers=max_workers,
+      ordered=ordered,
+    ),
+  )
 
 
 def build_chunk_generator[T](chunk_size: int) -> Callable[[Iterable[T]], Iterator[list[T]]]:
@@ -76,7 +130,7 @@ def passthrough_chunks[T](data: Iterable[list[T]]) -> Iterator[list[T]]:
   yield from iter(data)
 
 
-class Transformer[In, Out]:
+class Transformer[In, Out](BaseTransformer[In, Out]):
   """Define and compose data transformations by passing context explicitly.
 
   A Transformer represents a data processing pipeline that can be chained
@@ -86,6 +140,7 @@ class Transformer[In, Out]:
 
   def __init__(
     self,
+    strategy: ExecutionStrategy[In, Out] | None = None,
     chunk_size: int | None = DEFAULT_CHUNK_SIZE,
     transformer: InternalTransformer[In, Out] | None = None,
   ) -> None:
@@ -103,6 +158,7 @@ class Transformer[In, Out]:
     self._chunk_generator = build_chunk_generator(chunk_size) if chunk_size else lambda x: iter([list(x)])
     # Rule 2: Transformers create a simple context manager by default for standalone use.
     self._default_context = SimpleContextManager()
+    self.strategy = strategy if strategy is not None else SequentialStrategy()
 
   @classmethod
   def from_transformer[T, U](
@@ -121,6 +177,7 @@ class Transformer[In, Out]:
     """
     return cls(
       chunk_size=chunk_size or transformer.chunk_size,
+      strategy=transformer.strategy,  # type: ignore
       transformer=copy.deepcopy(transformer.transformer),  # type: ignore
     )
 
@@ -333,29 +390,10 @@ class Transformer[In, Out]:
     return self._pipe(operation)
 
   def __call__(self, data: Iterable[In], context: IContextManager | None = None) -> Iterator[Out]:
-    """Execute the transformer on a data source.
-
-    It uses the provided `context` by reference. If none is provided, it uses
-    the transformer's internal context.
-
-    Args:
-        data: The input data to process.
-        context: Optional context (IContextManager or dict) to use during processing.
-
-    Returns:
-        An iterator over the transformed data.
-    """
-
-    # Use the provided context by reference, or default to a simple context.
+    """Execute the transformer by delegating to its strategy."""
     run_context = context if context is not None else self._default_context
-
-    try:
-      for chunk in self._chunk_generator(data):
-        # The context is now passed explicitly through the transformer chain.
-        yield from self.transformer(chunk, run_context)
-    finally:
-      if run_context is self._default_context:
-        self._default_context.shutdown()
+    # The new __call__ is just one line!
+    return self.strategy.execute(self.transformer, self._chunk_generator, data, run_context)
 
   @overload
   def reduce[U](
@@ -466,7 +504,7 @@ class Transformer[In, Out]:
       catch_error_handler.on_error(on_error)  # type: ignore
 
     # Create a blank transformer for the sub-pipeline
-    temp_transformer = createTransformer(_type_hint=..., chunk_size=self.chunk_size)  # type: ignore
+    temp_transformer = create_transformer(_type_hint=..., chunk_size=self.chunk_size)  # type: ignore
 
     # Build the sub-pipeline and get its internal transformer function
     sub_pipeline = sub_pipeline_builder(temp_transformer)
