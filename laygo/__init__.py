@@ -8,7 +8,7 @@ from laygo.errors import ErrorHandler
 from laygo.helpers import PipelineContext
 from laygo.pipeline import Pipeline
 from laygo.transformers.http import HTTPTransformer
-from laygo.transformers.http import createHTTPTransformer
+from laygo.transformers.http import create_http_transformer
 from laygo.transformers.transformer import Transformer
 from laygo.transformers.transformer import build_chunk_generator
 from laygo.transformers.transformer import create_process_transformer
@@ -23,7 +23,7 @@ __all__ = [
   "create_threaded_transformer",
   "create_process_transformer",
   "HTTPTransformer",
-  "createHTTPTransformer",
+  "create_http_transformer",
   "PipelineContext",
   "ErrorHandler",
   "passthrough_chunks",
