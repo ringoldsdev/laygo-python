@@ -500,3 +500,68 @@ class TestPipelineBranch:
     # Context values should reflect the actual chunk sizes processed
     assert context["branch_b_processed"] == 3
     assert context["branch_a_processed"] == 3
+
+  def test_branch_conditional_router_mode(self):
+    """Test conditional branch with first_match=True (router mode)."""
+    # Setup
+    data = [1, "a", 2, 99.9, 3, "b"]
+    pipeline = Pipeline(data)
+
+    branches = {
+      "integers": (
+        createTransformer(int).map(lambda x: x + 1),
+        lambda x: isinstance(x, int),
+      ),
+      "strings": (
+        createTransformer(str).map(lambda x: x.upper()),
+        lambda x: isinstance(x, str),
+      ),
+      "numbers": (  # This condition also matches integers
+        createTransformer(float).map(lambda x: x * 10),
+        lambda x: isinstance(x, (int, float)),
+      ),
+    }
+
+    # Action: Execute branch with default first_match=True
+    result, _ = pipeline.branch(branches, first_match=True)
+
+    # Assert: Items are routed to the *first* matching branch only.
+    # Integers (1, 2, 3) are caught by the 'integers' branch first.
+    assert sorted(result["integers"]) == [2, 3, 4]
+    # Strings ('a', 'b') are caught by the 'strings' branch.
+    assert sorted(result["strings"]) == ["A", "B"]
+    # The float (99.9) is caught by 'numbers'. Integers are NOT processed
+    # here because they were already matched by the 'integers' branch.
+    assert result["numbers"] == [999.0]
+
+  def test_branch_conditional_broadcast_mode(self):
+    """Test conditional branch with first_match=False (broadcast mode)."""
+    # Setup
+    data = [1, "a", 2, 99.9, 3, "b"]
+    pipeline = Pipeline(data)
+
+    branches = {
+      "integers": (
+        createTransformer(int).map(lambda x: x + 1),
+        lambda x: isinstance(x, int),
+      ),
+      "strings": (
+        createTransformer(str).map(lambda x: x.upper()),
+        lambda x: isinstance(x, str),
+      ),
+      "numbers": (  # This condition also matches integers
+        createTransformer(float).map(lambda x: x * 10),
+        lambda x: isinstance(x, (int, float)),
+      ),
+    }
+
+    # Action: Execute branch with first_match=False
+    result, _ = pipeline.branch(branches, first_match=False)
+
+    # Assert: Items are routed to *all* matching branches.
+    # Integers (1, 2, 3) are processed by the 'integers' branch.
+    assert sorted(result["integers"]) == [2, 3, 4]
+    # Strings ('a', 'b') are processed by the 'strings' branch.
+    assert sorted(result["strings"]) == ["A", "B"]
+    # The float (99.9) AND the integers (1, 2, 3) are processed by the 'numbers' branch.
+    assert sorted(result["numbers"]) == [10.0, 20.0, 30.0, 999.0]
