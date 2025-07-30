@@ -303,98 +303,196 @@ class Pipeline[T]:
 
     return None, self.context_manager.to_dict()
 
+  # Overload 1: Unconditional fan-out
+  @overload
   def branch(
     self,
     branches: dict[str, Transformer[T, Any]],
+    *,
+    batch_size: int = 1000,
+    max_batch_buffer: int = 1,
+  ) -> tuple[dict[str, list[Any]], dict[str, Any]]: ...
+
+  # Overload 2: Conditional routing
+  @overload
+  def branch(
+    self,
+    branches: dict[str, tuple[Transformer[T, Any], Callable[[T], bool]]],
+    *,
+    first_match: bool = True,
+    batch_size: int = 1000,
+    max_batch_buffer: int = 1,
+  ) -> tuple[dict[str, list[Any]], dict[str, Any]]: ...
+
+  def branch(
+    self,
+    branches: dict[str, Transformer[T, Any]] | dict[str, tuple[Transformer[T, Any], Callable[[T], bool]]],
+    *,
+    first_match: bool = True,
     batch_size: int = 1000,
     max_batch_buffer: int = 1,
   ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
-    """Forks the pipeline into multiple branches for concurrent, parallel processing.
+    """
+    Forks the pipeline for parallel processing with optional conditional routing.
 
-    This is a **terminal operation** that implements a fan-out pattern where
-    the entire dataset is copied to each branch for independent processing.
-    Each branch gets its own Pipeline instance with isolated context management,
-    and results are collected and returned in a dictionary.
+    This is a **terminal operation** that consumes the pipeline.
+
+    **1. Unconditional Fan-Out:**
+    If `branches` is a `Dict[str, Transformer]`, every item is sent to every branch.
+
+    **2. Conditional Routing:**
+    If `branches` is a `Dict[str, Tuple[Transformer, condition]]`, the `first_match`
+    argument determines the routing logic:
+    - `first_match=True` (default): Routes each item to the **first** branch
+      whose condition is met. This acts as a router.
+    - `first_match=False`: Routes each item to **all** branches whose
+      conditions are met. This acts as a conditional broadcast.
 
     Args:
-        branches: A dictionary where keys are branch names (str) and values
-                  are `Transformer` instances of any subtype.
-        batch_size: The number of items to batch together when sending data
-                    to branches. Larger batches can improve throughput but
-                    use more memory. Defaults to 1000.
-        max_batch_buffer: The maximum number of batches to buffer for each
-                          branch queue. Controls memory usage and creates
-                          backpressure. Defaults to 1.
+        branches: A dictionary defining the branches.
+        first_match (bool): Determines the routing logic for conditional branches.
+        batch_size (int): The number of items to batch for processing.
+        max_batch_buffer (int): The max number of batches to buffer per branch.
 
     Returns:
-        A tuple containing:
-        - A dictionary where keys are the branch names and values are lists
-          of all items processed by that branch's transformer.
-        - A merged dictionary of all context values from all branches.
-
-    Note:
-        This operation consumes the pipeline's iterator, making subsequent
-        operations on the same pipeline return empty results.
+        A tuple containing a dictionary of results and the final context.
     """
     if not branches:
       self.consume()
       return {}, {}
 
+    first_value = next(iter(branches.values()))
+    is_conditional = isinstance(first_value, tuple)
+
+    parsed_branches: list[tuple[str, Transformer[T, Any], Callable[[T], bool]]]
+    if is_conditional:
+      parsed_branches = [(name, trans, cond) for name, (trans, cond) in branches.items()]  # type: ignore
+    else:
+      parsed_branches = [(name, trans, lambda _: True) for name, trans in branches.items()]  # type: ignore
+
+    producer_fn: Callable
+    if not is_conditional:
+      producer_fn = self._producer_fanout
+    elif first_match:
+      producer_fn = self._producer_router
+    else:
+      producer_fn = self._producer_broadcast
+
+    return self._execute_branching(
+      producer_fn=producer_fn,
+      parsed_branches=parsed_branches,
+      batch_size=batch_size,
+      max_batch_buffer=max_batch_buffer,
+    )
+
+  def _producer_fanout(
+    self,
+    source_iterator: Iterator[T],
+    queues: dict[str, Queue],
+    batch_size: int,
+  ) -> None:
+    """Producer for fan-out: sends every item to every branch."""
+    for batch_tuple in itertools.batched(source_iterator, batch_size):
+      batch_list = list(batch_tuple)
+      for q in queues.values():
+        q.put(batch_list)
+    for q in queues.values():
+      q.put(None)
+
+  def _producer_router(
+    self,
+    source_iterator: Iterator[T],
+    queues: dict[str, Queue],
+    parsed_branches: list[tuple[str, Transformer, Callable]],
+    batch_size: int,
+  ) -> None:
+    """Producer for router (`first_match=True`): sends item to the first matching branch."""
+    buffers = {name: [] for name, _, _ in parsed_branches}
+    for item in source_iterator:
+      for name, _, condition in parsed_branches:
+        if condition(item):
+          branch_buffer = buffers[name]
+          branch_buffer.append(item)
+          if len(branch_buffer) >= batch_size:
+            queues[name].put(branch_buffer)
+            buffers[name] = []
+          break
+    for name, buffer_list in buffers.items():
+      if buffer_list:
+        queues[name].put(buffer_list)
+    for q in queues.values():
+      q.put(None)
+
+  def _producer_broadcast(
+    self,
+    source_iterator: Iterator[T],
+    queues: dict[str, Queue],
+    parsed_branches: list[tuple[str, Transformer, Callable]],
+    batch_size: int,
+  ) -> None:
+    """Producer for broadcast (`first_match=False`): sends item to all matching branches."""
+    buffers = {name: [] for name, _, _ in parsed_branches}
+    for item in source_iterator:
+      item_matches = [name for name, _, condition in parsed_branches if condition(item)]
+
+      for name in item_matches:
+        buffers[name].append(item)
+        branch_buffer = buffers[name]
+        if len(branch_buffer) >= batch_size:
+          queues[name].put(branch_buffer)
+          buffers[name] = []
+
+    for name, buffer_list in buffers.items():
+      if buffer_list:
+        queues[name].put(buffer_list)
+    for q in queues.values():
+      q.put(None)
+
+  def _execute_branching(
+    self,
+    *,
+    producer_fn: Callable,
+    parsed_branches: list[tuple[str, Transformer, Callable]],
+    batch_size: int,
+    max_batch_buffer: int,
+  ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
+    """Shared execution logic for all branching modes."""
     source_iterator = self.processed_data
-    branch_items = list(branches.items())
-    num_branches = len(branch_items)
-    final_results: dict[str, list[Any]] = {}
+    num_branches = len(parsed_branches)
+    final_results: dict[str, list[Any]] = {name: [] for name, _, _ in parsed_branches}
+    queues = {name: Queue(maxsize=max_batch_buffer) for name, _, _ in parsed_branches}
 
-    queues = [Queue(maxsize=max_batch_buffer) for _ in range(num_branches)]
-
-    def producer() -> None:
-      """Reads from the source and distributes batches to ALL branch queues."""
-      # Use itertools.batched for clean and efficient batch creation.
-      for batch_tuple in itertools.batched(source_iterator, batch_size):
-        # The batch is a tuple; convert to a list for consumers.
-        batch_list = list(batch_tuple)
-        for q in queues:
-          q.put(batch_list)
-
-      # Signal to all consumers that the stream is finished.
-      for q in queues:
-        q.put(None)
-
-    def consumer(
-      transformer: Transformer, queue: Queue, context_handle: IContextHandle
-    ) -> tuple[list[Any], dict[str, Any]]:
-      """Consumes batches from a queue and processes them through a dedicated pipeline."""
+    def consumer(transformer: Transformer, queue: Queue, context_handle: IContextHandle) -> list[Any]:
+      """Consumes batches from a queue and processes them."""
 
       def stream_from_queue() -> Iterator[T]:
         while (batch := queue.get()) is not None:
           yield from batch
 
-      # Create a new pipeline for this branch but share the parent's context manager
-      # This ensures all branches share the same context
       branch_pipeline = Pipeline(stream_from_queue(), context_manager=context_handle.create_proxy())  # type: ignore
-
-      # Apply the transformer to the branch pipeline and get results
-      result_list, branch_context = branch_pipeline.apply(transformer).to_list()
-
-      return result_list, branch_context
+      result_list, _ = branch_pipeline.apply(transformer).to_list()
+      return result_list
 
     with ThreadPoolExecutor(max_workers=num_branches + 1) as executor:
-      executor.submit(producer)
+      # The producer needs different arguments depending on the type
+      producer_args: tuple
+      if producer_fn == self._producer_fanout:
+        producer_args = (source_iterator, queues, batch_size)
+      else:
+        producer_args = (source_iterator, queues, parsed_branches, batch_size)
+      executor.submit(producer_fn, *producer_args)
 
       future_to_name = {
-        executor.submit(consumer, transformer, queues[i], self.context_manager.get_handle()): name
-        for i, (name, transformer) in enumerate(branch_items)
+        executor.submit(consumer, transformer, queues[name], self.context_manager.get_handle()): name
+        for name, transformer, _ in parsed_branches
       }
 
-      # Collect results - context is shared through the same context manager
       for future in as_completed(future_to_name):
         name = future_to_name[future]
         try:
-          result_list, branch_context = future.result()
-          final_results[name] = result_list
+          final_results[name] = future.result()
         except Exception:
           final_results[name] = []
 
-    # After all threads complete, get the final context state
     final_context = self.context_manager.to_dict()
     return final_results, final_context
