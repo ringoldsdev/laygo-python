@@ -28,15 +28,31 @@ PipelineFunction = Callable[[T], Any]
 
 # This function must be defined at the top level of the module (e.g., after imports)
 def _branch_consumer_process[T](transformer: Transformer, queue: "Queue", context_handle: IContextHandle) -> list[Any]:
-  """
-  The entry point for a consumer process. It reconstructs the necessary
-  objects and runs a dedicated pipeline instance on the data from its queue.
+  """Entry point for a consumer process in parallel branching.
+
+  Reconstructs the necessary objects and runs a dedicated pipeline instance
+  on the data from its queue. This function is called in separate processes
+  during process-based parallel execution.
+
+  Args:
+      transformer: The transformer to apply to the data.
+      queue: Process-safe queue containing batched data items.
+      context_handle: Handle to create a context proxy in the new process.
+
+  Returns:
+      List of processed results from applying the transformer.
   """
   # Re-create the context proxy within the new process
   context_proxy = context_handle.create_proxy()
 
   def stream_from_queue() -> Iterator[T]:
-    """A generator that yields items from the process-safe queue."""
+    """Generate items from the process-safe queue.
+
+    Yields items from batches until a None sentinel is received.
+
+    Yields:
+        Items from the queue batches.
+    """
     while (batch := queue.get()) is not None:
       yield from batch
 
@@ -265,7 +281,9 @@ class Pipeline[T]:
     and materializes all results into memory.
 
     Returns:
-        A list containing all processed items from the pipeline.
+        A tuple containing:
+        - A list of all processed items from the pipeline
+        - The final context dictionary
 
     Note:
         This operation consumes the pipeline's iterator, making subsequent
@@ -274,7 +292,7 @@ class Pipeline[T]:
     return list(self.processed_data), self.context_manager.to_dict()
 
   def each(self, function: PipelineFunction[T]) -> tuple[None, dict[str, Any]]:
-    """Apply a function to each element (terminal operation).
+    """Apply a function to each element for side effects.
 
     This is a terminal operation that processes each element for side effects
     and consumes the pipeline's iterator without returning results.
@@ -282,6 +300,11 @@ class Pipeline[T]:
     Args:
         function: The function to apply to each element. Should be used for
                   side effects like logging, updating external state, etc.
+
+    Returns:
+        A tuple containing:
+        - None (no results are collected)
+        - The final context dictionary
 
     Note:
         This operation consumes the pipeline's iterator, making subsequent
@@ -293,7 +316,7 @@ class Pipeline[T]:
     return None, self.context_manager.to_dict()
 
   def first(self, n: int = 1) -> tuple[list[T], dict[str, Any]]:
-    """Get the first n elements of the pipeline (terminal operation).
+    """Get the first n elements of the pipeline.
 
     This is a terminal operation that consumes up to n elements from the
     pipeline's iterator and returns them as a list.
@@ -302,8 +325,10 @@ class Pipeline[T]:
         n: The number of elements to retrieve. Must be at least 1.
 
     Returns:
-        A list containing the first n elements, or fewer if the pipeline
-        contains fewer than n elements.
+        A tuple containing:
+        - A list containing the first n elements, or fewer if the pipeline
+          contains fewer than n elements
+        - The final context dictionary
 
     Raises:
         AssertionError: If n is less than 1.
@@ -316,11 +341,16 @@ class Pipeline[T]:
     return list(itertools.islice(self.processed_data, n)), self.context_manager.to_dict()
 
   def consume(self) -> tuple[None, dict[str, Any]]:
-    """Consume the pipeline without returning results (terminal operation).
+    """Consume the pipeline without returning results.
 
     This is a terminal operation that processes all elements in the pipeline
     for their side effects without materializing any results. Useful when
     the pipeline operations have side effects and you don't need the results.
+
+    Returns:
+        A tuple containing:
+        - None (no results are collected)
+        - The final context dictionary
 
     Note:
         This operation consumes the pipeline's iterator, making subsequent
@@ -337,7 +367,16 @@ class Pipeline[T]:
     queues: dict[str, Queue],
     batch_size: int,
   ) -> None:
-    """Producer for fan-out: sends every item to every branch."""
+    """Producer for fan-out mode.
+
+    Sends every item to every branch. Used for unconditional branching
+    where all branches process all items.
+
+    Args:
+        source_iterator: The source data iterator.
+        queues: Dictionary mapping branch names to their queues.
+        batch_size: Number of items per batch.
+    """
     for batch_tuple in itertools.batched(source_iterator, batch_size):
       batch_list = list(batch_tuple)
       for q in queues.values():
@@ -352,7 +391,17 @@ class Pipeline[T]:
     parsed_branches: list[tuple[str, Transformer, Callable]],
     batch_size: int,
   ) -> None:
-    """Producer for router (`first_match=True`): sends item to the first matching branch."""
+    """Producer for router mode.
+
+    Sends each item to the first matching branch when first_match=True.
+    This implements conditional routing where items go to exactly one branch.
+
+    Args:
+        source_iterator: The source data iterator.
+        queues: Dictionary mapping branch names to their queues.
+        parsed_branches: List of (name, transformer, condition) tuples.
+        batch_size: Number of items per batch.
+    """
     buffers = {name: [] for name, _, _ in parsed_branches}
     for item in source_iterator:
       for name, _, condition in parsed_branches:
@@ -376,7 +425,17 @@ class Pipeline[T]:
     parsed_branches: list[tuple[str, Transformer, Callable]],
     batch_size: int,
   ) -> None:
-    """Producer for broadcast (`first_match=False`): sends item to all matching branches."""
+    """Producer for broadcast mode.
+
+    Sends each item to all matching branches when first_match=False.
+    This implements conditional broadcasting where items can go to multiple branches.
+
+    Args:
+        source_iterator: The source data iterator.
+        queues: Dictionary mapping branch names to their queues.
+        parsed_branches: List of (name, transformer, condition) tuples.
+        batch_size: Number of items per batch.
+    """
     buffers = {name: [] for name, _, _ in parsed_branches}
     for item in source_iterator:
       item_matches = [name for name, _, condition in parsed_branches if condition(item)]
@@ -393,8 +452,6 @@ class Pipeline[T]:
         queues[name].put(buffer_list)
     for q in queues.values():
       q.put(None)
-
-  # In your Pipeline class
 
   # Overload 1: Unconditional fan-out
   @overload
@@ -502,7 +559,22 @@ class Pipeline[T]:
     batch_size: int,
     max_batch_buffer: int,
   ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
-    """Branching execution using a process pool for consumers."""
+    """Execute branching using a process pool for consumers.
+
+    Uses multiprocessing for true CPU parallelism. The producer runs in a
+    thread while consumers run in separate processes.
+
+    Args:
+        producer_fn: The producer function to use for routing items.
+        parsed_branches: List of (name, transformer, condition) tuples.
+        batch_size: Number of items per batch.
+        max_batch_buffer: Maximum number of batches to buffer per branch.
+
+    Returns:
+        A tuple containing:
+        - Dictionary mapping branch names to their result lists
+        - The final context dictionary
+    """
     source_iterator = self.processed_data
     num_branches = len(parsed_branches)
     final_results: dict[str, list[Any]] = {name: [] for name, _, _ in parsed_branches}
@@ -561,15 +633,41 @@ class Pipeline[T]:
     batch_size: int,
     max_batch_buffer: int,
   ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
-    """Shared execution logic for thread-based branching modes."""
-    # ... (The original implementation of _execute_branching goes here)
+    """Execute branching using a thread pool for consumers.
+
+    Uses threading for I/O-bound tasks. Both producer and consumers run
+    in separate threads within the same process.
+
+    Args:
+        producer_fn: The producer function to use for routing items.
+        parsed_branches: List of (name, transformer, condition) tuples.
+        batch_size: Number of items per batch.
+        max_batch_buffer: Maximum number of batches to buffer per branch.
+
+    Returns:
+        A tuple containing:
+        - Dictionary mapping branch names to their result lists
+        - The final context dictionary
+    """
     source_iterator = self.processed_data
     num_branches = len(parsed_branches)
     final_results: dict[str, list[Any]] = {name: [] for name, _, _ in parsed_branches}
     queues = {name: Queue(maxsize=max_batch_buffer) for name, _, _ in parsed_branches}
 
     def consumer(transformer: Transformer, queue: Queue, context_handle: IContextHandle) -> list[Any]:
-      """Consumes batches from a queue and processes them."""
+      """Consume batches from a queue and process them with a transformer.
+
+      Creates a mini-pipeline for the transformer and processes all
+      batches from the queue until completion.
+
+      Args:
+          transformer: The transformer to apply to the data.
+          queue: Queue containing batched data items.
+          context_handle: Handle to create a context proxy.
+
+      Returns:
+          List of processed results from applying the transformer.
+      """
 
       def stream_from_queue() -> Iterator[T]:
         while (batch := queue.get()) is not None:
