@@ -8,26 +8,22 @@ from laygo.errors import ErrorHandler
 from laygo.helpers import PipelineContext
 from laygo.pipeline import Pipeline
 from laygo.transformers.http import HTTPTransformer
-from laygo.transformers.http import createHTTPTransformer
-from laygo.transformers.parallel import ParallelTransformer
-from laygo.transformers.parallel import createParallelTransformer
-from laygo.transformers.threaded import ThreadedTransformer
-from laygo.transformers.threaded import createThreadedTransformer
+from laygo.transformers.http import create_http_transformer
 from laygo.transformers.transformer import Transformer
 from laygo.transformers.transformer import build_chunk_generator
-from laygo.transformers.transformer import createTransformer
+from laygo.transformers.transformer import create_process_transformer
+from laygo.transformers.transformer import create_threaded_transformer
+from laygo.transformers.transformer import create_transformer
 from laygo.transformers.transformer import passthrough_chunks
 
 __all__ = [
   "Pipeline",
   "Transformer",
-  "createTransformer",
-  "ThreadedTransformer",
-  "createThreadedTransformer",
-  "ParallelTransformer",
-  "createParallelTransformer",
+  "create_transformer",
+  "create_threaded_transformer",
+  "create_process_transformer",
   "HTTPTransformer",
-  "createHTTPTransformer",
+  "create_http_transformer",
   "PipelineContext",
   "ErrorHandler",
   "passthrough_chunks",

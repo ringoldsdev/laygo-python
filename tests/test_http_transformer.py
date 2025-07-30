@@ -2,8 +2,8 @@
 # This includes Pipeline, Transformer, and your HTTPTransformer.
 import requests_mock
 
-from laygo import HTTPTransformer
 from laygo import Pipeline
+from laygo import create_http_transformer
 from laygo.context.simple import SimpleContextManager
 
 
@@ -25,16 +25,16 @@ class TestHTTPTransformer:
 
     # 2. Define the transformer and its logic using the chainable API.
     # This single instance holds both the client and server logic.
-    http_transformer = (
-      HTTPTransformer(base_url=base_url, endpoint=endpoint).map(lambda x: x * 2).filter(lambda x: x > 10)
-    )
+    http_transformer, get_route = create_http_transformer(int, endpoint=base_url)
+
+    http_transformer.map(lambda x: x * 2).filter(lambda x: x > 10)
 
     # Set a small chunk_size to ensure the client makes multiple requests
     http_transformer.chunk_size = 4
 
     # 3. Get the worker's logic from the transformer itself
     # The `get_route` method provides the exact function the worker would run.
-    _, worker_view_func = http_transformer.get_route()
+    _, worker_view_func = get_route()
 
     # 4. Configure the mock endpoint to use the real worker logic
     def mock_response(request, context):
@@ -42,7 +42,7 @@ class TestHTTPTransformer:
       input_chunk = request.json()
       # Call the actual view function logic obtained from get_route()
       # We pass None for the context as it's not used in this simple case.
-      output_chunk = worker_view_func(chunk=input_chunk, context=SimpleContextManager())
+      output_chunk = worker_view_func(input_chunk, SimpleContextManager())
       return output_chunk
 
     # Use requests_mock context manager

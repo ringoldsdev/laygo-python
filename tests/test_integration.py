@@ -1,9 +1,9 @@
 """Integration tests for Pipeline and Transformer working together."""
 
-from laygo import ParallelTransformer
 from laygo import Pipeline
 from laygo import Transformer
-from laygo import createTransformer
+from laygo import create_process_transformer
+from laygo import create_transformer
 from laygo.context.types import IContextManager
 
 
@@ -12,7 +12,7 @@ class TestPipelineTransformerBasics:
 
   def test_basic_pipeline_transformer_integration(self):
     """Test basic pipeline and transformer integration."""
-    transformer = createTransformer(int).map(lambda x: x * 2).filter(lambda x: x > 5)
+    transformer = create_transformer(int).map(lambda x: x * 2).filter(lambda x: x > 5)
     result, _ = Pipeline([1, 2, 3, 4, 5]).apply(transformer).to_list()
     assert result == [6, 8, 10]
 
@@ -118,19 +118,19 @@ def stage2_processor(x: int, ctx: IContextManager) -> int:
 class TestPipelineParallelTransformerIntegration:
   """Test Pipeline integration with ParallelTransformer and context modification."""
 
-  def test_parallel_transformer_basic_integration(self):
+  def test_process_transformer_basic_integration(self):
     """Test pipeline with parallel transformer for basic operations."""
-    parallel_transformer = ParallelTransformer[int, int](max_workers=2, chunk_size=2)
+    parallel_transformer = create_process_transformer(int, max_workers=2, chunk_size=2)
     parallel_transformer = parallel_transformer.map(lambda x: x * 2).filter(lambda x: x > 5)
 
     result, _ = Pipeline([1, 2, 3, 4, 5]).apply(parallel_transformer).to_list()
     assert sorted(result) == [6, 8, 10]
 
-  def test_parallel_transformer_with_context_modification(self):
+  def test_process_transformer_with_context_modification(self):
     """Test parallel transformer safely modifying shared context."""
     context = {"processed_count": 0, "sum_total": 0}
 
-    parallel_transformer = ParallelTransformer[int, int](max_workers=2, chunk_size=2)
+    parallel_transformer = create_process_transformer(int, max_workers=2, chunk_size=2)
     parallel_transformer = parallel_transformer.map(safe_increment_and_transform)
 
     data = [1, 2, 3, 4, 5]
@@ -146,7 +146,7 @@ class TestPipelineParallelTransformerIntegration:
     """Test that pipeline can access context data modified by parallel transformer."""
     context = {"items_processed": 0, "even_count": 0, "odd_count": 0}
 
-    parallel_transformer = ParallelTransformer[int, int](max_workers=2, chunk_size=3)
+    parallel_transformer = create_process_transformer(int, max_workers=2, chunk_size=3)
     parallel_transformer = parallel_transformer.map(count_and_transform)
 
     data = [1, 2, 3, 4, 5, 6]
@@ -159,14 +159,14 @@ class TestPipelineParallelTransformerIntegration:
     assert pipeline.context_manager["even_count"] == 3  # 2, 4, 6
     assert pipeline.context_manager["odd_count"] == 3  # 1, 3, 5
 
-  def test_multiple_parallel_transformers_chaining(self):
+  def test_multiple_process_transformers_chaining(self):
     """Test chaining multiple parallel transformers with shared context."""
     # Shared context for statistics across transformations
     context = {"stage1_processed": 0, "stage2_processed": 0, "total_sum": 0}
 
     # Create two parallel transformers
-    stage1 = ParallelTransformer[int, int](max_workers=2, chunk_size=2).map(stage1_processor)
-    stage2 = ParallelTransformer[int, int](max_workers=2, chunk_size=2).map(stage2_processor)
+    stage1 = create_process_transformer(int, max_workers=2, chunk_size=2).map(stage1_processor)
+    stage2 = create_process_transformer(int, max_workers=2, chunk_size=2).map(stage2_processor)
 
     data = [1, 2, 3, 4, 5]
 
@@ -194,7 +194,7 @@ class TestPipelineParallelTransformerIntegration:
     expected_total = original_sum + stage1_sum  # 15 + 30 = 45
     assert final_context["total_sum"] == expected_total
 
-  def test_pipeline_context_isolation_with_parallel_processing(self):
+  def test_pipeline_context_isolation_with_process_processing(self):
     """Test that different pipeline instances have isolated contexts."""
 
     # Create base context structure
@@ -207,7 +207,7 @@ class TestPipelineParallelTransformerIntegration:
         ctx["count"] += 1
       return x * 2
 
-    parallel_transformer = ParallelTransformer[int, int](max_workers=2, chunk_size=2)
+    parallel_transformer = create_process_transformer(int, max_workers=2, chunk_size=2)
     parallel_transformer = parallel_transformer.map(increment_counter)
 
     data = [1, 2, 3]

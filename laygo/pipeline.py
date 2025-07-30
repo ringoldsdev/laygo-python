@@ -20,6 +20,7 @@ from laygo.context.parallel import ParallelContextManager
 from laygo.context.types import IContextHandle
 from laygo.helpers import is_context_aware
 from laygo.transformers.transformer import Transformer
+from laygo.transformers.types import BaseTransformer
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -27,7 +28,9 @@ PipelineFunction = Callable[[T], Any]
 
 
 # This function must be defined at the top level of the module (e.g., after imports)
-def _branch_consumer_process[T](transformer: Transformer, queue: "Queue", context_handle: IContextHandle) -> list[Any]:
+def _branch_consumer_process[T](
+  transformer: BaseTransformer, queue: "Queue", context_handle: IContextHandle
+) -> list[Any]:
   """Entry point for a consumer process in parallel branching.
 
   Reconstructs the necessary objects and runs a dedicated pipeline instance
@@ -457,7 +460,7 @@ class Pipeline[T]:
   @overload
   def branch(
     self,
-    branches: Mapping[str, Transformer[T, Any]],
+    branches: Mapping[str, BaseTransformer[T, Any]],
     *,
     executor_type: Literal["thread", "process"] = "thread",
     batch_size: int = 1000,
@@ -468,7 +471,7 @@ class Pipeline[T]:
   @overload
   def branch(
     self,
-    branches: Mapping[str, tuple[Transformer[T, Any], Callable[[T], bool]]],
+    branches: Mapping[str, tuple[BaseTransformer[T, Any], Callable[[T], bool]]],
     *,
     executor_type: Literal["thread", "process"] = "thread",
     first_match: bool = True,
@@ -478,7 +481,7 @@ class Pipeline[T]:
 
   def branch(
     self,
-    branches: Mapping[str, Transformer[T, Any]] | Mapping[str, tuple[Transformer[T, Any], Callable[[T], bool]]],
+    branches: Mapping[str, BaseTransformer[T, Any]] | Mapping[str, tuple[BaseTransformer[T, Any], Callable[[T], bool]]],
     *,
     executor_type: Literal["thread", "process"] = "thread",
     first_match: bool = True,
@@ -519,7 +522,7 @@ class Pipeline[T]:
     first_value = next(iter(branches.values()))
     is_conditional = isinstance(first_value, tuple)
 
-    parsed_branches: list[tuple[str, Transformer[T, Any], Callable[[T], bool]]]
+    parsed_branches: list[tuple[str, BaseTransformer[T, Any], Callable[[T], bool]]]
     if is_conditional:
       parsed_branches = [(name, trans, cond) for name, (trans, cond) in branches.items()]  # type: ignore
     else:
@@ -555,7 +558,7 @@ class Pipeline[T]:
     self,
     *,
     producer_fn: Callable,
-    parsed_branches: list[tuple[str, Transformer, Callable]],
+    parsed_branches: list[tuple[str, BaseTransformer, Callable]],
     batch_size: int,
     max_batch_buffer: int,
   ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
@@ -629,7 +632,7 @@ class Pipeline[T]:
     self,
     *,
     producer_fn: Callable,
-    parsed_branches: list[tuple[str, Transformer, Callable]],
+    parsed_branches: list[tuple[str, BaseTransformer, Callable]],
     batch_size: int,
     max_batch_buffer: int,
   ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
@@ -654,7 +657,7 @@ class Pipeline[T]:
     final_results: dict[str, list[Any]] = {name: [] for name, _, _ in parsed_branches}
     queues = {name: Queue(maxsize=max_batch_buffer) for name, _, _ in parsed_branches}
 
-    def consumer(transformer: Transformer, queue: Queue, context_handle: IContextHandle) -> list[Any]:
+    def consumer(transformer: BaseTransformer, queue: Queue, context_handle: IContextHandle) -> list[Any]:
       """Consume batches from a queue and process them with a transformer.
 
       Creates a mini-pipeline for the transformer and processes all
