@@ -71,3 +71,6 @@ upload: build
 # Install twine for package uploading (run this once before upload commands)
 install-twine:
 	uv add --dev twine
+
+profile:
+	uv run py-spy record -o profile-transformer.svg -- python profiler/basic.py
