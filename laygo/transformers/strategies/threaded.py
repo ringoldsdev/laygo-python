@@ -74,52 +74,104 @@ class ThreadedStrategy[In, Out](ExecutionStrategy[In, Out]):
 
       Args:
           chunk: The data chunk to process.
-          shared_context: The shared context for processing.
 
       Returns:
           The processed chunk.
       """
-      return transformer(chunk, shared_context)  # type: ignore
+      return transformer(chunk, shared_context)
 
     def _ordered_generator(chunks_iter: Iterator[list[In]], executor: ThreadPoolExecutor) -> Iterator[list[Out]]:
       """Generate results in their original order."""
       futures: deque[Future[list[Out]]] = deque()
+      executor_shutdown = False
 
       # Pre-submit initial batch of futures
-      for _ in range(min(self.max_workers, 10)):  # Limit initial submissions
+      for _ in range(min(self.max_workers, 10)):
+        if executor_shutdown:
+          break
         try:
           chunk = next(chunks_iter)
           futures.append(executor.submit(process_chunk, chunk))
         except StopIteration:
           break
+        except RuntimeError as e:
+          if "cannot schedule new futures after shutdown" in str(e):
+            executor_shutdown = True
+            break
+          raise
 
       while futures:
-        # Get the next result and submit the next chunk
-        result = futures.popleft().result()
-        yield result
-
         try:
-          chunk = next(chunks_iter)
-          futures.append(executor.submit(process_chunk, chunk))
-        except StopIteration:
-          continue
+          # Get the next result
+          result = futures.popleft().result()
+          yield result
+
+          # Try to submit the next chunk only if executor is not shutdown
+          if not executor_shutdown:
+            try:
+              chunk = next(chunks_iter)
+              futures.append(executor.submit(process_chunk, chunk))
+            except StopIteration:
+              continue
+            except RuntimeError as e:
+              if "cannot schedule new futures after shutdown" in str(e):
+                executor_shutdown = True
+                continue
+              raise
+        except Exception:
+          # Cancel remaining futures and re-raise
+          for future in futures:
+            try:
+              future.cancel()
+            except Exception:
+              pass  # Ignore cancellation errors
+          futures.clear()
+          raise
 
     def _unordered_generator(chunks_iter: Iterator[list[In]], executor: ThreadPoolExecutor) -> Iterator[list[Out]]:
       """Generate results as they complete."""
+      futures = set()
+      executor_shutdown = False
+
       # Pre-submit initial batch
-      futures = {
-        executor.submit(process_chunk, chunk) for chunk in itertools.islice(chunks_iter, min(self.max_workers, 10))
-      }
+      for chunk in itertools.islice(chunks_iter, min(self.max_workers, 10)):
+        if executor_shutdown:
+          break
+        try:
+          futures.add(executor.submit(process_chunk, chunk))
+        except RuntimeError as e:
+          if "cannot schedule new futures after shutdown" in str(e):
+            executor_shutdown = True
+            break
+          raise
 
       while futures:
-        done, futures = wait(futures, return_when=FIRST_COMPLETED)
-        for future in done:
-          yield future.result()
-          try:
-            chunk = next(chunks_iter)
-            futures.add(executor.submit(process_chunk, chunk))
-          except StopIteration:
-            continue
+        try:
+          done, futures = wait(futures, return_when=FIRST_COMPLETED)
+          for future in done:
+            yield future.result()
+
+            # Try to submit next chunk only if executor is not shutdown
+            if not executor_shutdown:
+              try:
+                chunk = next(chunks_iter)
+                futures.add(executor.submit(process_chunk, chunk))
+              except StopIteration:
+                continue
+              except RuntimeError as e:
+                if "cannot schedule new futures after shutdown" in str(e):
+                  executor_shutdown = True
+                  continue
+                raise
+        except Exception:
+          # Cancel remaining futures and re-raise
+          for future in futures:
+            try:
+              future.cancel()
+            except Exception:
+              pass  # Ignore cancellation errors
+          futures.clear()
+          raise
 
     # Use the reusable thread pool instead of creating a new one
     executor = self._get_thread_pool(self.max_workers)
@@ -129,10 +181,3 @@ class ThreadedStrategy[In, Out](ExecutionStrategy[In, Out]):
     # Process chunks using the reusable executor
     for result_chunk in gen_func(chunks_to_process, executor):
       yield from result_chunk
-
-  def __del__(self) -> None:
-    """Shutdown all cached thread pools. Call this during application cleanup."""
-    with self._pool_lock:
-      for pool in self._thread_pools.values():
-        pool.shutdown(wait=True)
-      self._thread_pools.clear()

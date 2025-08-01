@@ -17,6 +17,7 @@ from laygo.context import SimpleContextManager
 from laygo.errors import ErrorHandler
 from laygo.helpers import is_context_aware
 from laygo.helpers import is_context_aware_reduce
+from laygo.transformers.strategies.process import ProcessStrategy
 from laygo.transformers.strategies.sequential import SequentialStrategy
 from laygo.transformers.strategies.threaded import ThreadedStrategy
 from laygo.transformers.strategies.types import ExecutionStrategy
@@ -89,7 +90,7 @@ def create_process_transformer[T](
   """
   return Transformer[T, T](
     chunk_size=chunk_size,
-    strategy=ThreadedStrategy(
+    strategy=ProcessStrategy(
       max_workers=max_workers,
       ordered=ordered,
     ),
