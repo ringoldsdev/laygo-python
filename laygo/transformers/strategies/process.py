@@ -1,9 +1,9 @@
 from collections import deque
 from collections.abc import Iterator
-from concurrent.futures import FIRST_COMPLETED
 from concurrent.futures import wait
 import itertools
 
+from loky import as_completed
 from loky import get_reusable_executor
 
 from laygo.context.types import IContextHandle
@@ -55,21 +55,40 @@ class ProcessStrategy[In, Out](ExecutionStrategy[In, Out]):
     executor,
     context_handle: IContextHandle,
   ) -> Iterator[list[Out]]:
-    """Generate results in their original order."""
+    """Generate results in their original order, with robust error handling."""
     futures = deque()
+    chunks_iter = iter(chunks_iter)
+
+    # Submit the initial batch of tasks
     for _ in range(self.max_workers + 1):
       try:
         chunk = next(chunks_iter)
         futures.append(executor.submit(_worker_process_chunk, transformer, context_handle, chunk))
       except StopIteration:
         break
-    while futures:
-      yield futures.popleft().result()
-      try:
-        chunk = next(chunks_iter)
-        futures.append(executor.submit(_worker_process_chunk, transformer, context_handle, chunk))
-      except StopIteration:
-        continue
+
+    try:
+      while futures:
+        # Get the result of the oldest task. If it failed or the pool
+        # is broken, .result() will raise an exception.
+        result = futures.popleft().result()
+
+        # If successful, submit a new task.
+        try:
+          chunk = next(chunks_iter)
+          futures.append(executor.submit(_worker_process_chunk, transformer, context_handle, chunk))
+        except StopIteration:
+          # No more chunks to process.
+          pass
+
+        yield result
+    finally:
+      # This cleanup runs if the loop finishes or if an exception occurs.
+      # It prevents orphaned processes by cancelling pending tasks.
+      for future in futures:
+        future.cancel()
+      if futures:
+        wait(list(futures))
 
   def _unordered_generator(
     self,
@@ -78,17 +97,35 @@ class ProcessStrategy[In, Out](ExecutionStrategy[In, Out]):
     executor,
     context_handle: IContextHandle,
   ) -> Iterator[list[Out]]:
-    """Generate results as they complete."""
+    """Generate results as they complete, with robust error handling."""
     futures = {
       executor.submit(_worker_process_chunk, transformer, context_handle, chunk)
       for chunk in itertools.islice(chunks_iter, self.max_workers + 1)
     }
-    while futures:
-      done, futures = wait(futures, return_when=FIRST_COMPLETED)
-      for future in done:
-        yield future.result()
+
+    try:
+      # as_completed is ideal for this "process as they finish" pattern
+      for future in as_completed(futures):
+        # Get the result. This raises an exception if the task failed,
+        # which immediately stops the loop and proceeds to finally.
+        result = future.result()
+
+        # Remove the completed future from our tracking set
+        futures.remove(future)
+
+        # Try to submit a new task to replace the one that just finished
         try:
           chunk = next(chunks_iter)
           futures.add(executor.submit(_worker_process_chunk, transformer, context_handle, chunk))
         except StopIteration:
-          continue
+          # No more chunks left to submit.
+          pass
+
+        yield result
+    finally:
+      # Clean up any futures that were still running or pending when
+      # an exception occurred or the input was exhausted.
+      for future in futures:
+        future.cancel()
+      if futures:
+        wait(futures)
