@@ -1,25 +1,33 @@
 from abc import ABC
 from abc import abstractmethod
-from collections.abc import Callable
-from collections.abc import Iterable
 from collections.abc import Iterator
 
 from laygo.context.types import IContextManager
 from laygo.transformers.types import InternalTransformer
 
-type ChunkGenerator[In] = Callable[[Iterable[In]], Iterator[list[In]]]
-
 
 class ExecutionStrategy[In, Out](ABC):
-  """Defines the contract for all execution strategies."""
+  """Abstract base class for execution strategies.
+
+  Strategies handle how transformer logic is executed (sequentially,
+  threaded, in processes, etc.) but do not handle chunking.
+  """
 
   @abstractmethod
   def execute(
     self,
     transformer_logic: InternalTransformer[In, Out],
-    chunk_generator: Callable[[Iterable[In]], Iterator[list[In]]],
-    data: Iterable[In],
+    chunks: Iterator[list[In]],
     context: IContextManager,
-  ) -> Iterator[Out]:
-    """Runs the transformation logic on the data."""
-    raise NotImplementedError
+  ) -> Iterator[list[Out]]:
+    """Execute transformer logic on pre-chunked data.
+
+    Args:
+        transformer_logic: The transformation function to apply.
+        chunks: Iterator of pre-chunked data.
+        context: Context manager for the execution.
+
+    Returns:
+        Iterator of transformed chunks.
+    """
+    ...
