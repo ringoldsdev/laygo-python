@@ -1,8 +1,7 @@
 {
   "name": "Python 3 with UV",
-  "dockerComposeFile": "docker-compose.yml",
-  "service": "cli",
-  "workspaceFolder": "/workspaces/laygo",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bullseye",
+  "workspaceFolder": "/workspaces/laygo-python",
 
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
@@ -44,7 +43,7 @@
         "github.vscode-github-actions"
       ]
     }
-  },
+  }
 
   // Forward ports for potential web servers or APIs
   // "forwardPorts": [8000, 8080],
@@ -53,7 +52,7 @@
   // "remoteUser": "root",
 
   // Mount the workspace folder and preserve file permissions
-  "mounts": [
-    "source=${localWorkspaceFolder},target=/workspaces/laygo,type=bind,consistency=cached"
-  ]
+  // "mounts": [
+  //   "source=${localWorkspaceFolder},target=/workspaces/laygo,type=bind,consistency=cached"
+  // ]
 }
