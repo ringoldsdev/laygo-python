@@ -22,6 +22,7 @@ from laygo.transformers.strategies.sequential import SequentialStrategy
 from laygo.transformers.strategies.threaded import ThreadedStrategy
 from laygo.transformers.strategies.types import ExecutionStrategy
 from laygo.transformers.types import BaseTransformer
+from laygo.transformers.types import In
 from laygo.transformers.types import InternalTransformer
 
 DEFAULT_CHUNK_SIZE = 1000
@@ -391,10 +392,16 @@ class Transformer[In, Out](BaseTransformer[In, Out]):
     return self._pipe(operation)
 
   def __call__(self, data: Iterable[In], context: IContextManager | None = None) -> Iterator[Out]:
-    """Execute the transformer by delegating to its strategy."""
+    """Execute the transformer by first chunking data, then delegating to strategy."""
     run_context = context if context is not None else self._default_context
-    # The new __call__ is just one line!
-    return self.strategy.execute(self.transformer, self._chunk_generator, data, run_context)
+
+    # Transformer handles chunking, then passes chunks to strategy
+    chunks = self._chunk_generator(data)
+    transformed_chunks = self.strategy.execute(self.transformer, chunks, run_context)
+
+    # Flatten the chunks back into individual elements
+    for chunk in transformed_chunks:
+      yield from chunk
 
   @overload
   def reduce[U](
