@@ -11,7 +11,7 @@
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
 
-  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"$HOME/.cargo/bin:$PATH\" && uv sync --extra dev && uv pip install -e .",
+  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && echo 'export PATH=\"$HOME/.cargo/bin:$PATH\"' >> ~/.bashrc && export PATH=\"$HOME/.cargo/bin:$PATH\" && uv sync --extra dev && uv pip install -e .",
 
   // Configure tool-specific properties.
   "customizations": {
