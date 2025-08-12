@@ -1,61 +1,37 @@
-from collections.abc import Callable
+from queue import Queue
+import threading
 
 from laygo.context.types import IContextManager
-
-ChunkErrorHandler = Callable[[list, Exception, IContextManager], None]
-
-
-def raise_error(chunk: list, error: Exception, context: IContextManager) -> None:
-  """Handler that always re-raises the error, stopping execution.
-
-  This is a default error handler that provides fail-fast behavior by
-  re-raising any exception that occurs during chunk processing.
-
-  Args:
-      chunk: The data chunk that was being processed when the error occurred.
-      error: The exception that was raised.
-      context: The pipeline context at the time of the error.
-
-  Raises:
-      Exception: Always re-raises the provided error.
-  """
-  raise error
+from laygo.pipeline import Pipeline
+from laygo.types import BaseTransformer
 
 
 class ErrorHandler:
-  """Stores and executes a chain of error handlers.
+  """A dedicated pipeline for processing errors in parallel."""
 
-  Error handlers are executed in reverse order of addition. This design
-  assumes that handlers closer to the error source should be executed first.
-  """
+  def __init__(self, transformer: "BaseTransformer[dict, dict]"):
+    self._queue = Queue()
+    self._transformer = transformer
+    self._thread = threading.Thread(target=self._run, daemon=True)
+    self._thread.start()
 
-  def __init__(self) -> None:
-    """Initialize an empty error handler chain."""
-    self._handlers: list[ChunkErrorHandler] = []
+  def _run(self):
+    """The main loop for the error processing thread."""
+    Pipeline(self._stream_from_queue()).apply(self._transformer).consume()
 
-  def on_error(self, handler: ChunkErrorHandler) -> "ErrorHandler":
-    """Add a new handler to the beginning of the chain.
+  def _stream_from_queue(self):
+    """A generator that yields items from the queue."""
+    while True:
+      item = self._queue.get()
+      if item is None:
+        break
+      yield item
 
-    Args:
-        handler: A callable that processes errors. It receives the chunk
-                being processed, the exception that occurred, and the
-                pipeline context.
+  def handle(self, chunk: list, error: Exception, context: IContextManager):
+    """Puts an error into the processing queue."""
+    self._queue.put({"chunk": chunk, "error": str(error), "context": context.to_dict()})
 
-    Returns:
-        The ErrorHandler instance for method chaining.
-    """
-    self._handlers.insert(0, handler)
-    return self
-
-  def handle(self, chunk: list, error: Exception, context: IContextManager) -> None:
-    """Execute all handlers in the chain.
-
-    Handlers are executed in reverse order of addition. Execution stops
-    if any handler raises an exception.
-
-    Args:
-        chunk: The data chunk that was being processed when the error occurred.
-        error: The exception that was raised.
-        context: The pipeline context at the time of the error.
-    """
-    [handler(chunk, error, context) for handler in self._handlers]
+  def shutdown(self):
+    """Shuts down the error processing pipeline."""
+    self._queue.put(None)
+    self._thread.join()

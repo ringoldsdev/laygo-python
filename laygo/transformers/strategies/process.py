@@ -8,8 +8,8 @@ from loky import get_reusable_executor
 
 from laygo.context.types import IContextHandle
 from laygo.context.types import IContextManager
-from laygo.transformers.strategies.types import ExecutionStrategy
-from laygo.transformers.types import InternalTransformer
+from laygo.types import ExecutionStrategy
+from laygo.types import InternalTransformer
 
 
 def _worker_process_chunk[In, Out](

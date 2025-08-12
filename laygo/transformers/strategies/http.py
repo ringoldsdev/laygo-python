@@ -8,8 +8,8 @@ import itertools
 import requests
 
 from laygo.context.types import IContextManager
-from laygo.transformers.strategies.types import ExecutionStrategy
-from laygo.transformers.types import InternalTransformer
+from laygo.types import ExecutionStrategy
+from laygo.types import InternalTransformer
 
 
 class HTTPStrategy[In, Out](ExecutionStrategy[In, Out]):

@@ -20,7 +20,7 @@ from laygo.context.parallel import ParallelContextManager
 from laygo.context.types import IContextHandle
 from laygo.helpers import is_context_aware
 from laygo.transformers.transformer import Transformer
-from laygo.transformers.types import BaseTransformer
+from laygo.types import BaseTransformer
 
 T = TypeVar("T")
 U = TypeVar("U")

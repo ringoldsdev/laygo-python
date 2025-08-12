@@ -3,7 +3,6 @@
 import multiprocessing as mp
 import time
 
-from laygo import ErrorHandler
 from laygo import Transformer
 from laygo import create_process_transformer
 from laygo import create_transformer
@@ -180,17 +179,4 @@ class TestParallelTransformerErrorHandling:
       )
       result = list(transformer([1, 2, 3]))
       assert result == []
-      assert sorted(map(tuple, errored_chunks)) == sorted(map(tuple, [[1], [2], [3]]))
-
-  def test_global_error_handler(self):
-    """Test global error handling through error handler."""
-    with mp.Manager() as manager:
-      errored_chunks = manager.list()
-      error_handler = ErrorHandler()
-      error_handler.on_error(lambda chunk, error, context: errored_chunks.append(chunk))
-
-      transformer = (
-        create_process_transformer(int, chunk_size=1).on_error(error_handler).catch(lambda t: t.map(lambda x: x / 0))
-      )
-      list(transformer([1, 2, 3]))
       assert sorted(map(tuple, errored_chunks)) == sorted(map(tuple, [[1], [2], [3]]))

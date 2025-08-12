@@ -2,7 +2,6 @@
 
 import pytest
 
-from laygo import ErrorHandler
 from laygo import Transformer
 from laygo.context.simple import SimpleContextManager
 from laygo.transformers.transformer import create_transformer
@@ -427,56 +426,41 @@ class TestTransformerErrorHandling:
 
   def test_catch_with_successful_operation(self):
     """Test catch with successful transformation."""
-    transformer = create_transformer(int).catch(lambda t: t.map(lambda x: x * 2))
+    transformer = create_transformer(int).catch(try_block=lambda t: t.map(lambda x: x * 2))
     result = list(transformer([1, 2, 3]))
     assert result == [2, 4, 6]
 
   def test_catch_with_error_isolation(self):
-    """Test catch isolates errors to specific chunks."""
+    """Test catch isolates errors to specific chunks using a lambda."""
     errored_chunks = []
     transformer = create_transformer(int, chunk_size=1).catch(
-      lambda t: t.map(lambda x: x / 0),  # Division by zero
-      on_error=lambda chunk, error, context: errored_chunks.append(chunk),  # type: ignore
+      try_block=lambda t: t.map(lambda x: x / 0),  # Division by zero
+      # Use a lambda to define the error handling transformer directly
+      on_error=lambda t: t.tap(lambda err: errored_chunks.append(err["chunk"])),
     )
     result = list(transformer([1, 2, 3]))
 
     assert result == []  # All operations failed
     assert errored_chunks == [[1], [2], [3]]  # Each chunk failed individually
 
-  def test_global_error_handler(self):
-    """Test global error handling through error handler."""
-    errored_chunks = []
-    error_handler = ErrorHandler()
-    error_handler.on_error(lambda chunk, error, context: errored_chunks.append(chunk))
-
-    transformer = create_transformer(int, chunk_size=1).on_error(error_handler).catch(lambda t: t.map(lambda x: x / 0))
-
-    list(transformer([1, 2, 3]))
-    assert errored_chunks == [[1], [2], [3]]
-
   def test_short_circuit_on_error(self):
     """Test short-circuit behavior when errors occur."""
-
-    def set_error_flag(_chunk, _error, context):
-      context["error_occurred"] = True
-
     transformer = (
       create_transformer(int, chunk_size=1)
       .catch(
-        lambda t: t.map(lambda x: x / 0),
-        on_error=set_error_flag,  # type: ignore
+        try_block=lambda t: t.map(lambda x: x / 0),
+        # The lambda updates the context dictionary directly
+        on_error=lambda t: t.tap(lambda err: err["context"].update({"error_occurred": True})),
       )
       .short_circuit(lambda ctx: ctx.get("error_occurred", False))
     )
 
+    # The context needs to be passed to the transformer call
     with pytest.raises(RuntimeError):
-      list(transformer([1, 2, 3]))
+      list(transformer([1, 2, 3], SimpleContextManager()))
 
   def test_short_circuit_with_custom_exception(self):
     """Test short-circuit with custom exception raising."""
-
-    def set_error_flag(_chunk, _error, context):
-      context["error_occurred"] = True
 
     def raise_on_error(ctx):
       if ctx.get("error_occurred"):
@@ -485,11 +469,11 @@ class TestTransformerErrorHandling:
     transformer = (
       create_transformer(int, chunk_size=1)
       .catch(
-        lambda t: t.map(lambda x: x / 0),
-        on_error=set_error_flag,  # type: ignore
+        try_block=lambda t: t.map(lambda x: x / 0),
+        on_error=lambda t: t.tap(lambda err: err["context"].update({"error_occurred": True})),
       )
       .short_circuit(raise_on_error)
     )
 
     with pytest.raises(RuntimeError, match="Short-circuit condition met"):
-      list(transformer([1, 2, 3]))
+      list(transformer([1, 2, 3], SimpleContextManager()))

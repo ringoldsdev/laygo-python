@@ -2,7 +2,6 @@
 
 import time
 
-from laygo import ErrorHandler
 from laygo.context.parallel import ParallelContextManager
 from laygo.context.types import IContextManager
 from laygo.transformers.transformer import Transformer
@@ -255,16 +254,3 @@ class TestThreadedTransformerErrorHandling:
 
     assert result == []  # All operations failed
     assert errored_chunks == [[1], [2], [3]]  # Each chunk failed individually
-
-  def test_global_error_handler(self):
-    """Test global error handling through error handler."""
-    errored_chunks = []
-    error_handler = ErrorHandler()
-    error_handler.on_error(lambda chunk, error, context: errored_chunks.append(chunk))
-
-    transformer = (
-      create_threaded_transformer(int, chunk_size=1).on_error(error_handler).catch(lambda t: t.map(lambda x: x / 0))
-    )
-
-    list(transformer([1, 2, 3]))
-    assert errored_chunks == [[1], [2], [3]]

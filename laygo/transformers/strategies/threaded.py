@@ -6,8 +6,8 @@ from concurrent.futures import wait
 import itertools
 
 from laygo.context.types import IContextManager
-from laygo.transformers.strategies.types import ExecutionStrategy
-from laygo.transformers.types import InternalTransformer
+from laygo.types import ExecutionStrategy
+from laygo.types import InternalTransformer
 
 
 class ThreadedStrategy[In, Out](ExecutionStrategy[In, Out]):

@@ -1,4 +1,4 @@
-from laygo.transformers.strategies.types import ExecutionStrategy
+from laygo.types import ExecutionStrategy
 
 
 class SequentialStrategy[In, Out](ExecutionStrategy[In, Out]):

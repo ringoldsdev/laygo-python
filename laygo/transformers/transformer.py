@@ -20,10 +20,9 @@ from laygo.helpers import is_context_aware_reduce
 from laygo.transformers.strategies.process import ProcessStrategy
 from laygo.transformers.strategies.sequential import SequentialStrategy
 from laygo.transformers.strategies.threaded import ThreadedStrategy
-from laygo.transformers.strategies.types import ExecutionStrategy
-from laygo.transformers.types import BaseTransformer
-from laygo.transformers.types import In
-from laygo.transformers.types import InternalTransformer
+from laygo.types import BaseTransformer
+from laygo.types import ExecutionStrategy
+from laygo.types import InternalTransformer
 
 DEFAULT_CHUNK_SIZE = 1000
 
@@ -98,6 +97,11 @@ def create_process_transformer[T](
   )
 
 
+def _create_default_error_transformer() -> "Transformer[dict, dict]":
+  """Creates a default transformer that simply prints the error."""
+  return create_transformer(dict).tap(lambda err: print(f"Error: {err}"))
+
+
 def build_chunk_generator[T](chunk_size: int) -> Callable[[Iterable[T]], Iterator[list[T]]]:
   """Return a function that breaks an iterable into chunks of a specified size.
 
@@ -156,7 +160,6 @@ class Transformer[In, Out](BaseTransformer[In, Out]):
     self.chunk_size = chunk_size
     # The default transformer now accepts and ignores a context argument.
     self.transformer: InternalTransformer[In, Out] = transformer or (lambda chunk, ctx: chunk)  # type: ignore
-    self.error_handler = ErrorHandler()
     self._chunk_generator = build_chunk_generator(chunk_size) if chunk_size else lambda x: iter([list(x)])
     # Rule 2: Transformers create a simple context manager by default for standalone use.
     self._default_context = SimpleContextManager()
@@ -487,52 +490,47 @@ class Transformer[In, Out](BaseTransformer[In, Out]):
 
   def catch[U](
     self,
-    sub_pipeline_builder: Callable[["Transformer[Out, Out]"], "Transformer[Out, U]"],
-    on_error: ChunkErrorHandler[Out, None] | None = None,
+    try_block: Callable[["Transformer[Out, Out]"], "Transformer[Out, U]"],
+    *,
+    on_error: "ErrorHandler | Callable[[Transformer[dict, dict]], Transformer[dict, Any]] | None" = None,
   ) -> "Transformer[In, U]":
-    """Isolate a sub-pipeline in a chunk-based try-catch block.
-
-    If the sub-pipeline fails for a chunk, the on_error handler is invoked.
+    """
+    Isolates a sub-pipeline in a try-catch block with a configurable error handler.
 
     Args:
-        sub_pipeline_builder: A function that builds the sub-pipeline to protect.
-        on_error: A picklable error handler for when the sub-pipeline fails.
-                  It takes a chunk, exception, and context, and must return a
-                  replacement chunk (`list[U]`). If not provided, an empty
-                  list is returned on error.
+        try_block: A function that builds the main sub-pipeline to execute.
+        on_error: Defines the error handling logic. Can be:
+                  - An `ErrorHandler` instance: Reuses an existing error handler.
+                  - A callable: A function that defines a new error-handling
+                    transformer (e.g., `lambda t: t.tap(log_error)`).
+                  - None: A default error handler that prints errors will be used.
 
     Returns:
-        A transformer with error handling applied.
+        A transformer with the error handling logic applied.
     """
+    handler: ErrorHandler
+    if isinstance(on_error, ErrorHandler):
+      handler = on_error
+    elif callable(on_error):
+      # The callable now builds a Transformer directly.
+      error_transformer = on_error(create_transformer(dict))
+      handler = ErrorHandler(error_transformer)
+    else:
+      # Create a default ErrorHandler with the default transformer.
+      handler = ErrorHandler(_create_default_error_transformer())
 
-    # Use the global error handler if it exists, otherwise create an internal one
-    catch_error_handler = self.error_handler
-
-    if on_error is not None:
-      catch_error_handler.on_error(on_error)  # type: ignore
-
-    # Create a blank transformer for the sub-pipeline
-    temp_transformer = create_transformer(_type_hint=..., chunk_size=self.chunk_size)  # type: ignore
-
-    # Build the sub-pipeline and get its internal transformer function
-    sub_pipeline = sub_pipeline_builder(temp_transformer)
+    temp_transformer = create_transformer(_type_hint=..., chunk_size=self.chunk_size or DEFAULT_CHUNK_SIZE)  # type: ignore
+    sub_pipeline = try_block(temp_transformer)
     sub_transformer_func = sub_pipeline.transformer
 
-    # This 'operation' function is now picklable. It only closes over
-    # `sub_transformer_func` and `catch_error_handler`, both of which are
-    # picklable, and it no longer references `self`.
     def operation(chunk: list[Out], ctx: IContextManager) -> list[U]:
       try:
-        # Attempt to process the chunk with the sub-pipeline
         return sub_transformer_func(chunk, ctx)
       except Exception as e:
-        # Call the error handler (which may include both global and local handlers)
-        catch_error_handler.handle(chunk, e, ctx)
-
-        # Return an empty list as the default behavior after handling the error
+        handler.handle(chunk, e, ctx)
         return []
 
-    return self._pipe(operation)  # type: ignore
+    return self._pipe(operation)
 
   def short_circuit(self, function: Callable[[IContextManager], bool | None]) -> "Transformer[In, Out]":
     """Execute a function on the context before processing the next step for a chunk.
